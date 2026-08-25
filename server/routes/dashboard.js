@@ -55,7 +55,7 @@ module.exports = function dashboardRouter() {
         SELECT to_char(event_date::date, 'YYYY-MM') AS month,
                 COALESCE(SUM(${revenueExpr()}), 0)::int AS revenue,
                 COUNT(*)::int AS orders_count
-         FROM orders
+         FROM orders o
          WHERE event_date IS NOT NULL AND status != 'cancelled'
          GROUP BY month
          ORDER BY month ASC
