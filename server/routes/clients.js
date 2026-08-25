@@ -10,7 +10,7 @@ module.exports = function clientsRouter(emitChange) {
       const { rows } = await db.query(`
         SELECT c.*,
             COUNT(o.id)::int AS orders_count,
-            COALESCE(SUM(o.base_price + o.extra_services_fee + o.transport_fee - o.partner_discount), 0)::int AS total_spent
+            COALESCE(SUM(o.games_cost + o.tables_cost + o.escort_cost + o.logistics_cost), 0)::int AS total_spent
          FROM clients c
          LEFT JOIN orders o ON o.client_id = c.id
          GROUP BY c.id

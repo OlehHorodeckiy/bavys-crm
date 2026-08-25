@@ -5,20 +5,30 @@ import { useLiveData } from "../useLiveData";
 import { Loading, ErrorBanner } from "../components/LoadError.jsx";
 import StatusBadge from "../components/StatusBadge.jsx";
 import OrderFormModal from "../components/OrderFormModal.jsx";
-import { formatDate, formatMoney, PAYMENT_STATUS_LABELS } from "../statuses";
+import { formatDate, formatMoney, STATUS_PIPELINE } from "../statuses";
 
 export default function Orders() {
   const orders = useLiveData(api.getOrders);
   const clients = useLiveData(api.getClients);
-  const staff = useLiveData(api.getStaff);
-  const [showForm, setShowForm] = useState(false);
+  const [modalOrder, setModalOrder] = useState(undefined);
   const [filter, setFilter] = useState("all");
 
-  if (orders.loading || clients.loading || staff.loading) return <Loading />;
+  if (orders.loading || clients.loading) return <Loading />;
   if (orders.error) return <ErrorBanner message={orders.error} />;
 
   const filtered =
     filter === "all" ? orders.data : orders.data.filter((o) => o.status === filter);
+
+  async function handleStatusChange(order, status) {
+    await api.updateOrder(order.id, { status });
+    orders.reload();
+  }
+
+  async function handleDelete(order) {
+    if (!window.confirm(`Видалити замовлення клієнта «${order.client_name}»?`)) return;
+    await api.deleteOrder(order.id);
+    orders.reload();
+  }
 
   return (
     <div>
@@ -27,17 +37,17 @@ export default function Orders() {
           <h1>Замовлення</h1>
           <p>Усі заявки на ігрові програми та аніматорів</p>
         </div>
-        <button className="btn btn-primary" onClick={() => setShowForm(true)}>+ Нове замовлення</button>
+        <button className="btn btn-primary" onClick={() => setModalOrder(null)}>+ Нове замовлення</button>
       </div>
 
       <div className="pill-row">
         <button className={`pill${filter === "all" ? " active" : ""}`} onClick={() => setFilter("all")}>Всі ({orders.data.length})</button>
-        {["new", "confirmed", "advance_paid", "completed", "paid", "cancelled"].map((s) => {
-          const count = orders.data.filter((o) => o.status === s).length;
+        {STATUS_PIPELINE.map((s) => {
+          const count = orders.data.filter((o) => o.status === s.value).length;
           if (count === 0) return null;
           return (
-            <button key={s} className={`pill${filter === s ? " active" : ""}`} onClick={() => setFilter(s)}>
-              <StatusBadge status={s} /> {count}
+            <button key={s.value} className={`pill${filter === s.value ? " active" : ""}`} onClick={() => setFilter(s.value)}>
+              <StatusBadge status={s.value} /> {count}
             </button>
           );
         })}
@@ -51,28 +61,43 @@ export default function Orders() {
             <thead>
               <tr>
                 <th>Клієнт</th>
-                <th>Тип події</th>
                 <th>Дата події</th>
                 <th>Локація</th>
-                <th>Сума</th>
-                <th>Оплата</th>
+                <th>Загальна сума</th>
+                <th>Аванс</th>
+                <th>До оплати</th>
                 <th>Статус</th>
-                <th>Відповідальний</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
               {filtered.map((o) => (
-                <tr key={o.id}>
+                <tr key={o.id} className="order-row" onClick={() => setModalOrder(o)}>
                   <td>
-                    <Link className="client-link" to={`/clients/${o.client_id}`}>{o.client_name}</Link>
+                    <Link className="client-link" to={`/clients/${o.client_id}`} onClick={(e) => e.stopPropagation()}>
+                      {o.client_name}
+                    </Link>
+                    <div style={{ fontSize: "0.78rem", color: "var(--muted)" }}>{o.client_phone}</div>
                   </td>
-                  <td>{o.event_type}</td>
                   <td>{formatDate(o.event_date)}</td>
                   <td>{o.venue || "—"}</td>
-                  <td style={{ fontWeight: 700 }}>{formatMoney(o.total_amount)}</td>
-                  <td>{PAYMENT_STATUS_LABELS[o.payment_status] || o.payment_status}</td>
-                  <td><StatusBadge status={o.status} /></td>
-                  <td>{o.staff_name || "—"}</td>
+                  <td style={{ fontWeight: 600 }}>{formatMoney(o.total_amount)}</td>
+                  <td>{formatMoney(o.advance_amount)}</td>
+                  <td style={{ fontWeight: 600, color: o.remaining_balance > 0 ? "var(--primary)" : "var(--success, #5db872)" }}>
+                    {formatMoney(o.remaining_balance)}
+                  </td>
+                  <td onClick={(e) => e.stopPropagation()}>
+                    <select
+                      className="status-select"
+                      value={o.status}
+                      onChange={(e) => handleStatusChange(o, e.target.value)}
+                    >
+                      {STATUS_PIPELINE.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+                    </select>
+                  </td>
+                  <td onClick={(e) => e.stopPropagation()}>
+                    <button className="row-delete-btn" title="Видалити" onClick={() => handleDelete(o)}>✕</button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -80,12 +105,13 @@ export default function Orders() {
         )}
       </div>
 
-      {showForm && (
+      {modalOrder !== undefined && (
         <OrderFormModal
           clients={clients.data}
-          staff={staff.data}
-          onClose={() => setShowForm(false)}
-          onCreated={() => { orders.reload(); clients.reload(); }}
+          order={modalOrder}
+          onClose={() => setModalOrder(undefined)}
+          onSaved={() => { orders.reload(); clients.reload(); }}
+          onDeleted={() => orders.reload()}
         />
       )}
     </div>

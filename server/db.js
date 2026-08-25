@@ -9,6 +9,49 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
+async function columnExists(table, column) {
+  const { rows } = await pool.query(
+    `SELECT 1 FROM information_schema.columns WHERE table_name = $1 AND column_name = $2`,
+    [table, column]
+  );
+  return rows.length > 0;
+}
+
+// Brings an orders table created under the old schema (base_price,
+// extra_services_fee, transport_fee, partner_discount, payment_status,
+// 6-value status pipeline) up to the current one, without touching any
+// real rows already in it. No-op on a freshly created table.
+async function migrateOrdersTable() {
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS games_cost INTEGER NOT NULL DEFAULT 0`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS tables_cost INTEGER NOT NULL DEFAULT 0`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS escort_cost INTEGER NOT NULL DEFAULT 0`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS logistics_cost INTEGER NOT NULL DEFAULT 0`);
+
+  if (await columnExists("orders", "base_price")) {
+    await pool.query(`UPDATE orders SET games_cost = base_price WHERE base_price IS NOT NULL`);
+    await pool.query(`ALTER TABLE orders DROP COLUMN base_price`);
+  }
+  if (await columnExists("orders", "transport_fee")) {
+    await pool.query(`UPDATE orders SET logistics_cost = transport_fee WHERE transport_fee IS NOT NULL`);
+    await pool.query(`ALTER TABLE orders DROP COLUMN transport_fee`);
+  }
+  if (await columnExists("orders", "extra_services_fee")) {
+    // Old schema merged "tables" + "service" into one fee; keep the total
+    // intact by folding it into escort_cost rather than guessing a split.
+    await pool.query(`UPDATE orders SET escort_cost = escort_cost + extra_services_fee WHERE extra_services_fee IS NOT NULL`);
+    await pool.query(`ALTER TABLE orders DROP COLUMN extra_services_fee`);
+  }
+  if (await columnExists("orders", "partner_discount")) {
+    await pool.query(`ALTER TABLE orders DROP COLUMN partner_discount`);
+  }
+  if (await columnExists("orders", "payment_status")) {
+    await pool.query(`ALTER TABLE orders DROP COLUMN payment_status`);
+  }
+
+  await pool.query(`UPDATE orders SET status = 'waiting_advance' WHERE status IN ('new', 'confirmed', 'advance_paid')`);
+  await pool.query(`ALTER TABLE orders ALTER COLUMN status SET DEFAULT 'waiting_advance'`);
+}
+
 async function init() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS clients (
@@ -32,15 +75,14 @@ async function init() {
       client_id INTEGER NOT NULL REFERENCES clients(id),
       event_type TEXT NOT NULL DEFAULT 'Дитяче свято',
       venue TEXT,
-      status TEXT NOT NULL DEFAULT 'new',
+      status TEXT NOT NULL DEFAULT 'waiting_advance',
       event_date TEXT,
       advance_date TEXT,
-      base_price INTEGER NOT NULL DEFAULT 0,
+      games_cost INTEGER NOT NULL DEFAULT 0,
+      tables_cost INTEGER NOT NULL DEFAULT 0,
+      escort_cost INTEGER NOT NULL DEFAULT 0,
+      logistics_cost INTEGER NOT NULL DEFAULT 0,
       advance_amount INTEGER NOT NULL DEFAULT 0,
-      extra_services_fee INTEGER NOT NULL DEFAULT 0,
-      transport_fee INTEGER NOT NULL DEFAULT 0,
-      partner_discount INTEGER NOT NULL DEFAULT 0,
-      payment_status TEXT NOT NULL DEFAULT 'waiting',
       comment TEXT,
       assigned_staff_id INTEGER REFERENCES staff(id),
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -50,13 +92,33 @@ async function init() {
     CREATE TABLE IF NOT EXISTS interactions (
       id SERIAL PRIMARY KEY,
       client_id INTEGER NOT NULL REFERENCES clients(id),
-      order_id INTEGER REFERENCES orders(id),
+      order_id INTEGER REFERENCES orders(id) ON DELETE SET NULL,
       type TEXT NOT NULL,
       text TEXT NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       created_by TEXT
     );
+
+    -- Manual P&L / cash-flow ledger. Order income is NOT duplicated here —
+    -- it's read live from orders (see routes/pl.js) so it can never drift
+    -- out of sync with an edited or deleted order.
+    CREATE TABLE IF NOT EXISTS transactions (
+      id SERIAL PRIMARY KEY,
+      date TEXT NOT NULL,
+      description TEXT NOT NULL,
+      category TEXT,
+      type TEXT NOT NULL DEFAULT 'expense',
+      flow TEXT NOT NULL DEFAULT 'out',
+      amount INTEGER NOT NULL DEFAULT 0,
+      payment_method TEXT,
+      comment TEXT,
+      affects_pl BOOLEAN NOT NULL DEFAULT true,
+      created_by TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
   `);
+
+  await migrateOrdersTable();
 }
 
 module.exports = {

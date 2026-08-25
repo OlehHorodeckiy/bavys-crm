@@ -11,6 +11,8 @@ const ordersRouter = require("./routes/orders");
 const staffRouter = require("./routes/staff");
 const interactionsRouter = require("./routes/interactions");
 const dashboardRouter = require("./routes/dashboard");
+const transactionsRouter = require("./routes/transactions");
+const plRouter = require("./routes/pl");
 
 const PORT = process.env.PORT || 4000;
 const CLIENT_DIST = path.join(__dirname, "../client/dist");
@@ -39,6 +41,8 @@ app.use("/api/orders", ordersRouter(emitChange));
 app.use("/api/staff", staffRouter(emitChange));
 app.use("/api/interactions", interactionsRouter(emitChange));
 app.use("/api/dashboard", dashboardRouter());
+app.use("/api/transactions", transactionsRouter(emitChange));
+app.use("/api/pl", plRouter());
 
 app.get("/api/health", (req, res) => res.json({ ok: true }));
 

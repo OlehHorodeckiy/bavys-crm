@@ -1,73 +1,100 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { api } from "../api";
-import { STATUS_PIPELINE } from "../statuses";
+import { STATUS_PIPELINE, EVENT_TYPES, formatMoney } from "../statuses";
 import { useBodyScrollLock } from "../useBodyScrollLock";
 
-const EVENT_TYPES = ["Дитяче свято", "Весілля", "Корпоратив", "День народження", "Інше"];
+function emptyForm(order) {
+  if (order) {
+    return {
+      event_type: order.event_type,
+      venue: order.venue || "",
+      event_date: order.event_date || "",
+      status: order.status,
+      games_cost: order.games_cost,
+      tables_cost: order.tables_cost,
+      escort_cost: order.escort_cost,
+      logistics_cost: order.logistics_cost,
+      advance_amount: order.advance_amount,
+      comment: order.comment || "",
+    };
+  }
+  return {
+    event_type: "Дитяче свято",
+    venue: "",
+    event_date: "",
+    status: "waiting_advance",
+    games_cost: "",
+    tables_cost: "",
+    escort_cost: "",
+    logistics_cost: "",
+    advance_amount: "",
+    comment: "",
+  };
+}
 
-const emptyForm = {
-  client_id: "",
-  new_client_name: "",
-  new_client_phone: "",
-  event_type: "Дитяче свято",
-  venue: "",
-  status: "new",
-  event_date: "",
-  base_price: "",
-  advance_amount: "",
-  extra_services_fee: "",
-  transport_fee: "",
-  partner_discount: "",
-  payment_status: "waiting",
-  comment: "",
-  assigned_staff_id: "",
-};
-
-export default function OrderFormModal({ clients, staff, onClose, onCreated }) {
-  const [form, setForm] = useState(emptyForm);
-  const [mode, setMode] = useState(clients.length ? "existing" : "new");
+export default function OrderFormModal({ clients, order, onClose, onSaved, onDeleted }) {
+  const isEdit = !!order;
+  const [form, setForm] = useState(() => emptyForm(order));
+  const [mode, setMode] = useState("existing");
+  const [clientQuery, setClientQuery] = useState("");
+  const [selectedClient, setSelectedClient] = useState(
+    isEdit ? { id: order.client_id, name: order.client_name, phone: order.client_phone } : null
+  );
+  const [newClient, setNewClient] = useState({ name: "", phone: "" });
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState(null);
   useBodyScrollLock();
+
+  const matches = useMemo(() => {
+    const q = clientQuery.trim().toLowerCase();
+    if (!q) return [];
+    return clients
+      .filter((c) => c.phone.includes(q) || c.name.toLowerCase().includes(q))
+      .slice(0, 8);
+  }, [clientQuery, clients]);
 
   function update(field, value) {
     setForm((f) => ({ ...f, [field]: value }));
   }
+
+  const num = (v) => Number(v) || 0;
+  const totalAmount = num(form.games_cost) + num(form.tables_cost) + num(form.escort_cost) + num(form.logistics_cost);
+  const remaining = Math.max(totalAmount - num(form.advance_amount), 0);
 
   async function handleSubmit(e) {
     e.preventDefault();
     setSaving(true);
     setError(null);
     try {
-      let clientId = form.client_id;
-      if (mode === "new") {
-        if (!form.new_client_name || !form.new_client_phone) {
-          throw new Error("Вкажіть ім'я і телефон нового клієнта");
-        }
-        const client = await api.createClient({
-          name: form.new_client_name,
-          phone: form.new_client_phone,
-        });
+      let clientId = selectedClient?.id;
+      if (!isEdit && mode === "new") {
+        if (!newClient.name || !newClient.phone) throw new Error("Вкажіть ім'я і телефон нового клієнта");
+        const client = await api.createClient(newClient);
         clientId = client.id;
       }
       if (!clientId) throw new Error("Оберіть клієнта");
 
-      await api.createOrder({
+      const payload = {
         client_id: Number(clientId),
         event_type: form.event_type,
         venue: form.venue,
-        status: form.status,
         event_date: form.event_date || null,
-        base_price: Number(form.base_price) || 0,
-        advance_amount: Number(form.advance_amount) || 0,
-        extra_services_fee: Number(form.extra_services_fee) || 0,
-        transport_fee: Number(form.transport_fee) || 0,
-        partner_discount: Number(form.partner_discount) || 0,
-        payment_status: form.payment_status,
+        status: form.status,
+        games_cost: num(form.games_cost),
+        tables_cost: num(form.tables_cost),
+        escort_cost: num(form.escort_cost),
+        logistics_cost: num(form.logistics_cost),
+        advance_amount: num(form.advance_amount),
         comment: form.comment,
-        assigned_staff_id: form.assigned_staff_id ? Number(form.assigned_staff_id) : null,
-      });
-      onCreated?.();
+      };
+
+      if (isEdit) {
+        await api.updateOrder(order.id, payload);
+      } else {
+        await api.createOrder(payload);
+      }
+      onSaved?.();
       onClose();
     } catch (err) {
       setError(err.message);
@@ -76,45 +103,98 @@ export default function OrderFormModal({ clients, staff, onClose, onCreated }) {
     }
   }
 
+  async function handleDelete() {
+    if (!window.confirm("Видалити це замовлення? Дію не можна скасувати.")) return;
+    setDeleting(true);
+    try {
+      await api.deleteOrder(order.id);
+      onDeleted?.();
+      onClose();
+    } catch (err) {
+      setError(err.message);
+      setDeleting(false);
+    }
+  }
+
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>Нове замовлення</h2>
+          <h2>{isEdit ? "Замовлення" : "Нове замовлення"}</h2>
           <button className="close-btn" onClick={onClose}>✕</button>
         </div>
         <form onSubmit={handleSubmit}>
-          <div className="pill-row">
-            <button type="button" className={`pill${mode === "existing" ? " active" : ""}`} onClick={() => setMode("existing")}>
-              Існуючий клієнт
-            </button>
-            <button type="button" className={`pill${mode === "new" ? " active" : ""}`} onClick={() => setMode("new")}>
-              Новий клієнт
-            </button>
-          </div>
+          <div className="field">
+            <label>Клієнт</label>
+            {isEdit || selectedClient ? (
+              <div className="selected-client">
+                <div>
+                  <strong>{selectedClient?.name}</strong>
+                  <div style={{ color: "var(--muted)", fontSize: "0.85rem" }}>{selectedClient?.phone}</div>
+                </div>
+                {!isEdit && (
+                  <button type="button" className="btn-ghost" style={{ height: 32, padding: "0 12px" }} onClick={() => setSelectedClient(null)}>
+                    Змінити
+                  </button>
+                )}
+              </div>
+            ) : (
+              <>
+                <div className="pill-row" style={{ marginBottom: 10 }}>
+                  <button type="button" className={`pill${mode === "existing" ? " active" : ""}`} onClick={() => setMode("existing")}>
+                    Існуючий клієнт
+                  </button>
+                  <button type="button" className={`pill${mode === "new" ? " active" : ""}`} onClick={() => setMode("new")}>
+                    Новий клієнт
+                  </button>
+                </div>
 
-          {mode === "existing" ? (
-            <div className="field">
-              <label>Клієнт</label>
-              <select className="input" value={form.client_id} onChange={(e) => update("client_id", e.target.value)}>
-                <option value="">Оберіть клієнта…</option>
-                {clients.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name} ({c.phone})</option>
-                ))}
-              </select>
-            </div>
-          ) : (
-            <div className="form-row">
-              <div className="field">
-                <label>Ім'я клієнта</label>
-                <input className="input" value={form.new_client_name} onChange={(e) => update("new_client_name", e.target.value)} />
-              </div>
-              <div className="field">
-                <label>Телефон</label>
-                <input className="input" value={form.new_client_phone} onChange={(e) => update("new_client_phone", e.target.value)} />
-              </div>
-            </div>
-          )}
+                {mode === "existing" ? (
+                  <div style={{ position: "relative" }}>
+                    <input
+                      className="input"
+                      placeholder="Введіть номер телефону або ім'я…"
+                      value={clientQuery}
+                      onChange={(e) => setClientQuery(e.target.value)}
+                    />
+                    {matches.length > 0 && (
+                      <div className="client-suggestions">
+                        {matches.map((c) => (
+                          <button
+                            type="button"
+                            key={c.id}
+                            className="client-suggestion-row"
+                            onClick={() => {
+                              setSelectedClient(c);
+                              setClientQuery("");
+                            }}
+                          >
+                            <span>{c.name}</span>
+                            <span style={{ color: "var(--muted)" }}>{c.phone}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="form-row">
+                    <input
+                      className="input"
+                      placeholder="Ім'я клієнта"
+                      value={newClient.name}
+                      onChange={(e) => setNewClient((c) => ({ ...c, name: e.target.value }))}
+                    />
+                    <input
+                      className="input"
+                      placeholder="Телефон"
+                      value={newClient.phone}
+                      onChange={(e) => setNewClient((c) => ({ ...c, phone: e.target.value }))}
+                    />
+                  </div>
+                )}
+              </>
+            )}
+          </div>
 
           <div className="form-row">
             <div className="field">
@@ -124,7 +204,7 @@ export default function OrderFormModal({ clients, staff, onClose, onCreated }) {
               </select>
             </div>
             <div className="field">
-              <label>Локація / майданчик</label>
+              <label>Адреса</label>
               <input className="input" value={form.venue} onChange={(e) => update("venue", e.target.value)} />
             </div>
           </div>
@@ -144,47 +224,34 @@ export default function OrderFormModal({ clients, staff, onClose, onCreated }) {
 
           <div className="form-row">
             <div className="field">
-              <label>Вартість програми, грн</label>
-              <input type="number" className="input" value={form.base_price} onChange={(e) => update("base_price", e.target.value)} />
+              <label>Вартість ігор, грн</label>
+              <input type="number" min="0" className="input" value={form.games_cost} onChange={(e) => update("games_cost", e.target.value)} />
             </div>
             <div className="field">
-              <label>Аванс, грн</label>
-              <input type="number" className="input" value={form.advance_amount} onChange={(e) => update("advance_amount", e.target.value)} />
-            </div>
-          </div>
-
-          <div className="form-row">
-            <div className="field">
-              <label>Додаткові послуги, грн</label>
-              <input type="number" className="input" value={form.extra_services_fee} onChange={(e) => update("extra_services_fee", e.target.value)} />
-            </div>
-            <div className="field">
-              <label>Транспорт, грн</label>
-              <input type="number" className="input" value={form.transport_fee} onChange={(e) => update("transport_fee", e.target.value)} />
+              <label>Вартість столів, грн</label>
+              <input type="number" min="0" className="input" value={form.tables_cost} onChange={(e) => update("tables_cost", e.target.value)} />
             </div>
           </div>
 
           <div className="form-row">
             <div className="field">
-              <label>Знижка партнера, грн</label>
-              <input type="number" className="input" value={form.partner_discount} onChange={(e) => update("partner_discount", e.target.value)} />
+              <label>Вартість супроводу, грн</label>
+              <input type="number" min="0" className="input" value={form.escort_cost} onChange={(e) => update("escort_cost", e.target.value)} />
             </div>
             <div className="field">
-              <label>Оплата</label>
-              <select className="input" value={form.payment_status} onChange={(e) => update("payment_status", e.target.value)}>
-                <option value="waiting">Очікує оплати</option>
-                <option value="partial">Частково оплачено</option>
-                <option value="paid">Оплачено</option>
-              </select>
+              <label>Логістика, грн</label>
+              <input type="number" min="0" className="input" value={form.logistics_cost} onChange={(e) => update("logistics_cost", e.target.value)} />
             </div>
           </div>
 
           <div className="field">
-            <label>Відповідальний</label>
-            <select className="input" value={form.assigned_staff_id} onChange={(e) => update("assigned_staff_id", e.target.value)}>
-              <option value="">Не призначено</option>
-              {staff.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
+            <label>Аванс, грн</label>
+            <input type="number" min="0" className="input" value={form.advance_amount} onChange={(e) => update("advance_amount", e.target.value)} />
+          </div>
+
+          <div className="totals-box">
+            <div><span>Загальна сума</span><strong>{formatMoney(totalAmount)}</strong></div>
+            <div><span>До оплати</span><strong>{formatMoney(remaining)}</strong></div>
           </div>
 
           <div className="field">
@@ -194,11 +261,18 @@ export default function OrderFormModal({ clients, staff, onClose, onCreated }) {
 
           {error && <div className="error-banner" style={{ padding: "10px 0" }}>{error}</div>}
 
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 8 }}>
-            <button type="button" className="btn btn-ghost" onClick={onClose}>Скасувати</button>
-            <button type="submit" className="btn btn-primary" disabled={saving}>
-              {saving ? "Збереження…" : "Створити замовлення"}
-            </button>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
+            {isEdit ? (
+              <button type="button" className="btn btn-danger" onClick={handleDelete} disabled={deleting}>
+                {deleting ? "Видалення…" : "Видалити"}
+              </button>
+            ) : <span />}
+            <div style={{ display: "flex", gap: 10 }}>
+              <button type="button" className="btn btn-ghost" onClick={onClose}>Скасувати</button>
+              <button type="submit" className="btn btn-primary" disabled={saving}>
+                {saving ? "Збереження…" : isEdit ? "Зберегти" : "Створити замовлення"}
+              </button>
+            </div>
           </div>
         </form>
       </div>

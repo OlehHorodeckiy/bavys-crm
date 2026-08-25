@@ -15,6 +15,16 @@ function Svg({ size = 20, children }) {
   );
 }
 
+export function IconMenu(props) {
+  return (
+    <Svg {...props}>
+      <path d="M4 7H20" />
+      <path d="M4 12H20" />
+      <path d="M4 17H20" />
+    </Svg>
+  );
+}
+
 export function IconOverview(props) {
   return (
     <Svg {...props}>
@@ -80,6 +90,16 @@ export function IconCoins(props) {
       <path d="M3.5 7V13C3.5 14.7 6 16 9 16C12 16 14.5 14.7 14.5 13V7" />
       <path d="M3.5 10C3.5 11.7 6 13 9 13C12 13 14.5 11.7 14.5 10" />
       <path d="M12.5 15.4C13 17.6 15.5 19.2 18 19.2C20.5 19.2 21 17.6 21 16.6C21 14.8 18.5 15 18.5 13.3C18.5 12.3 19.5 11.8 20.7 12.3" />
+    </Svg>
+  );
+}
+
+export function IconTrend(props) {
+  return (
+    <Svg {...props}>
+      <path d="M3.5 20.5H20.5" />
+      <path d="M4.5 16.5L9.5 10.5L13 13.5L19.5 5.5" />
+      <path d="M14.5 5.5H19.5V10.5" />
     </Svg>
   );
 }

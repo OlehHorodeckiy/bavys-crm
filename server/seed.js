@@ -8,21 +8,21 @@ const STAFF = [
   { name: "Наталя", position: "Адміністратор" },
 ];
 
-// phone, name, venue, event_date (YYYY-MM-DD), base_price, extra_services_fee, transport_fee,
-// payment_status (paid|waiting), status, comment
+// phone, name, venue, event_date (YYYY-MM-DD), games_cost, tables_cost, escort_cost,
+// logistics_cost, status (waiting_advance|paid|completed|cancelled), comment
 const ORDERS = [
-  ["0676047064", "Настя", "Форест, весілля", "2026-05-02", 1600, 0, 0, "paid", "paid", ""],
-  ["0666666666", "Клієнт без номера", "Виїзна подія", "2026-06-05", 1550, 0, 0, "paid", "paid", ""],
-  ["0939134572", "Ярина", "Лісова пісня", "2026-06-12", 800, 0, 0, "paid", "paid", ""],
-  ["0665582285", "Олена", "Круасани", "2026-06-13", 3000, 1170, 1100, "paid", "paid", ""],
-  ["0677181832", "Ірина Туркевич", "Леополіс", "2026-06-18", 4500, 1470, 1200, "paid", "paid", ""],
-  ["0939134572", "Ярина", "Лісова пісня", "2026-06-18", 800, 0, 0, "paid", "paid", ""],
-  ["0673203782", "Solomka", "Село Папірня", "2026-06-20", 2300, 0, 1000, "paid", "paid", ""],
-  ["0984491174", "Софія", "Форест, весілля", "2026-07-03", 1550, 0, 0, "paid", "paid", "самовивіз"],
-  ["0980888241", "Hadzitskaa", "Форест, весілля", "2026-07-18", 3000, 360, 1000, "paid", "paid", ""],
-  ["0987140049", "Анастасія", "Форест, весілля", "2026-07-26", 800, 0, 0, "paid", "paid", "самовивіз"],
-  ["0630686156", "Ігор", "Форест, весілля", "2026-08-23", 4200, 90, 1600, "waiting", "completed", ""],
-  ["0633280505", "Христина Семків", "Самовивіз", "2026-07-30", 800, 0, 0, "paid", "paid", ""],
+  ["0676047064", "Настя", "Форест, весілля", "2026-05-02", 1600, 0, 0, 0, "paid", ""],
+  ["0666666666", "Клієнт без номера", "Виїзна подія", "2026-06-05", 1550, 0, 0, 0, "paid", ""],
+  ["0939134572", "Ярина", "Лісова пісня", "2026-06-12", 800, 0, 0, 0, "paid", ""],
+  ["0665582285", "Олена", "Круасани", "2026-06-13", 3000, 270, 900, 1100, "paid", ""],
+  ["0677181832", "Ірина Туркевич", "Леополіс", "2026-06-18", 4500, 270, 1200, 1200, "paid", ""],
+  ["0939134572", "Ярина", "Лісова пісня", "2026-06-18", 800, 0, 0, 0, "paid", ""],
+  ["0673203782", "Solomka", "Село Папірня", "2026-06-20", 2300, 0, 0, 1000, "paid", ""],
+  ["0984491174", "Софія", "Форест, весілля", "2026-07-03", 1550, 0, 0, 0, "paid", "самовивіз"],
+  ["0980888241", "Hadzitskaa", "Форест, весілля", "2026-07-18", 3000, 360, 0, 1000, "paid", ""],
+  ["0987140049", "Анастасія", "Форест, весілля", "2026-07-26", 800, 0, 0, 0, "paid", "самовивіз"],
+  ["0630686156", "Ігор", "Форест, весілля", "2026-08-23", 4200, 90, 0, 1600, "completed", ""],
+  ["0633280505", "Христина Семків", "Самовивіз", "2026-07-30", 800, 0, 0, 0, "paid", ""],
 ];
 
 async function run() {
@@ -45,7 +45,7 @@ async function run() {
 
   const ownerStaffId = staffIds["Маряна"];
 
-  for (const [phone, name, venue, eventDate, basePrice, extraFee, transportFee, paymentStatus, status, comment] of ORDERS) {
+  for (const [phone, name, venue, eventDate, gamesCost, tablesCost, escortCost, logisticsCost, status, comment] of ORDERS) {
     const { rows: existingClient } = await db.query("SELECT id FROM clients WHERE phone = $1", [phone]);
     let clientId;
     if (existingClient[0]) {
@@ -58,11 +58,11 @@ async function run() {
     const { rows: orderRows } = await db.query(
       `INSERT INTO orders (
         client_id, event_type, venue, status, event_date, advance_date,
-        base_price, advance_amount, extra_services_fee, transport_fee, partner_discount,
-        payment_status, comment, assigned_staff_id
-      ) VALUES ($1, 'Весілля', $2, $3, $4, NULL, $5, 0, $6, $7, 0, $8, $9, $10)
+        games_cost, tables_cost, escort_cost, logistics_cost, advance_amount,
+        comment, assigned_staff_id
+      ) VALUES ($1, 'Весілля', $2, $3, $4, NULL, $5, $6, $7, $8, 0, $9, $10)
       RETURNING id`,
-      [clientId, venue, status, eventDate, basePrice, extraFee, transportFee, paymentStatus, comment, ownerStaffId]
+      [clientId, venue, status, eventDate, gamesCost, tablesCost, escortCost, logisticsCost, comment, ownerStaffId]
     );
 
     await db.query(

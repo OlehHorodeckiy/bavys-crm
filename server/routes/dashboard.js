@@ -2,7 +2,7 @@ const express = require("express");
 const db = require("../db");
 
 function revenueExpr(alias = "o") {
-  return `(${alias}.base_price + ${alias}.extra_services_fee + ${alias}.transport_fee - ${alias}.partner_discount)`;
+  return `(${alias}.games_cost + ${alias}.tables_cost + ${alias}.escort_cost + ${alias}.logistics_cost)`;
 }
 
 module.exports = function dashboardRouter() {

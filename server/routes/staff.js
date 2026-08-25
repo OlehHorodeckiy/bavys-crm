@@ -9,8 +9,8 @@ module.exports = function staffRouter(emitChange) {
       const { rows } = await db.query(`
         SELECT s.*,
             COUNT(o.id)::int AS orders_count,
-            SUM(CASE WHEN o.payment_status = 'paid' THEN 1 ELSE 0 END)::int AS paid_orders_count,
-            COALESCE(SUM(o.base_price + o.extra_services_fee + o.transport_fee - o.partner_discount), 0)::int AS total_revenue
+            SUM(CASE WHEN o.status = 'paid' THEN 1 ELSE 0 END)::int AS paid_orders_count,
+            COALESCE(SUM(o.games_cost + o.tables_cost + o.escort_cost + o.logistics_cost), 0)::int AS total_revenue
          FROM staff s
          LEFT JOIN orders o ON o.assigned_staff_id = s.id
          GROUP BY s.id

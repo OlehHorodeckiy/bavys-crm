@@ -9,25 +9,23 @@ const ORDER_FIELDS = [
   "status",
   "event_date",
   "advance_date",
-  "base_price",
+  "games_cost",
+  "tables_cost",
+  "escort_cost",
+  "logistics_cost",
   "advance_amount",
-  "extra_services_fee",
-  "transport_fee",
-  "partner_discount",
-  "payment_status",
   "comment",
   "assigned_staff_id",
 ];
 
 const FIELD_DEFAULTS = {
   event_type: "Дитяче свято",
-  status: "new",
-  base_price: 0,
+  status: "waiting_advance",
+  games_cost: 0,
+  tables_cost: 0,
+  escort_cost: 0,
+  logistics_cost: 0,
   advance_amount: 0,
-  extra_services_fee: 0,
-  transport_fee: 0,
-  partner_discount: 0,
-  payment_status: "waiting",
 };
 
 async function logInteraction(clientId, orderId, type, text) {
@@ -36,6 +34,14 @@ async function logInteraction(clientId, orderId, type, text) {
     [clientId, orderId, type, text, "system"]
   );
 }
+
+// Future events soonest-first, then past events most-recent-first.
+const ORDER_BY_EVENT_DATE = `
+  ORDER BY
+    CASE WHEN o.event_date::date >= CURRENT_DATE THEN 0 ELSE 1 END,
+    CASE WHEN o.event_date::date >= CURRENT_DATE THEN o.event_date END ASC,
+    CASE WHEN o.event_date::date < CURRENT_DATE THEN o.event_date END DESC
+`;
 
 module.exports = function ordersRouter(emitChange) {
   const router = express.Router();
@@ -47,7 +53,7 @@ module.exports = function ordersRouter(emitChange) {
          FROM orders o
          JOIN clients c ON c.id = o.client_id
          LEFT JOIN staff s ON s.id = o.assigned_staff_id
-         ORDER BY o.event_date ASC
+         ${ORDER_BY_EVENT_DATE}
       `);
       res.json(rows.map(withOrderTotals));
     } catch (err) {
@@ -101,6 +107,22 @@ module.exports = function ordersRouter(emitChange) {
 
       emitChange("order:updated", withOrderTotals(order));
       res.json(withOrderTotals(order));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.delete("/:id", async (req, res, next) => {
+    try {
+      const { rows: existingRows } = await db.query("SELECT * FROM orders WHERE id = $1", [req.params.id]);
+      const existing = existingRows[0];
+      if (!existing) return res.status(404).json({ error: "Замовлення не знайдено" });
+
+      await db.query("UPDATE interactions SET order_id = NULL WHERE order_id = $1", [req.params.id]);
+      await db.query("DELETE FROM orders WHERE id = $1", [req.params.id]);
+
+      emitChange("order:deleted", { id: Number(req.params.id) });
+      res.status(204).end();
     } catch (err) {
       next(err);
     }

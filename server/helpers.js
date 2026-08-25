@@ -1,18 +1,32 @@
 const STATUS_PIPELINE = [
-  { value: "new", label: "Новий" },
-  { value: "confirmed", label: "Підтверджено" },
-  { value: "advance_paid", label: "Аванс отримано" },
-  { value: "completed", label: "Проведено" },
-  { value: "paid", label: "Оплачено повністю" },
+  { value: "waiting_advance", label: "Чекаємо аванс" },
+  { value: "paid", label: "Оплачено" },
+  { value: "completed", label: "Подія проведена" },
   { value: "cancelled", label: "Скасовано" },
 ];
 
 function withOrderTotals(order) {
-  const totalAmount =
-    order.base_price + order.extra_services_fee + order.transport_fee - order.partner_discount;
-  const remainingBalance =
-    order.payment_status === "paid" ? 0 : Math.max(totalAmount - order.advance_amount, 0);
+  const totalAmount = order.games_cost + order.tables_cost + order.escort_cost + order.logistics_cost;
+  const remainingBalance = Math.max(totalAmount - order.advance_amount, 0);
   return { ...order, total_amount: totalAmount, remaining_balance: remainingBalance };
 }
 
-module.exports = { STATUS_PIPELINE, withOrderTotals };
+const TRANSACTION_TYPES = [
+  { value: "expense", label: "Витрата" },
+  { value: "income", label: "Дохід" },
+  { value: "personal", label: "Особисте" },
+  { value: "other", label: "Інше" },
+];
+
+const EXPENSE_CATEGORIES = [
+  "Реклама",
+  "Реквізит / матеріали",
+  "Зарплати / команда",
+  "Транспорт",
+  "Оренда",
+  "Закупівлі",
+  "Логістика",
+  "Інше",
+];
+
+module.exports = { STATUS_PIPELINE, withOrderTotals, TRANSACTION_TYPES, EXPENSE_CATEGORIES };
