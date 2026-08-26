@@ -2,6 +2,9 @@ const express = require("express");
 const db = require("../db");
 
 const ORDER_REVENUE = "(o.games_cost + o.tables_cost + o.escort_cost + o.logistics_cost)";
+// Money actually collected for an order: the full total once it's marked
+// "Оплачено", otherwise whatever advance/partial payment is on record.
+const ORDER_COLLECTED = `(CASE WHEN o.status = 'paid' THEN ${ORDER_REVENUE} ELSE o.advance_amount END)`;
 
 function dateFilter(column, from, to, params) {
   const parts = [];
@@ -22,7 +25,7 @@ module.exports = function plRouter() {
       const orderConds = ["o.status != 'cancelled'", ...dateFilter("o.event_date", from, to, orderParams)];
       const { rows: orderRevRows } = await db.query(
         `SELECT COALESCE(SUM(${ORDER_REVENUE}), 0)::int AS revenue,
-                COALESCE(SUM(GREATEST(${ORDER_REVENUE} - o.advance_amount, 0)), 0)::int AS outstanding,
+                COALESCE(SUM(GREATEST(${ORDER_REVENUE} - ${ORDER_COLLECTED}, 0)), 0)::int AS outstanding,
                 COUNT(*)::int AS orders_count
          FROM orders o WHERE ${orderConds.join(" AND ")}`,
         orderParams
@@ -50,7 +53,7 @@ module.exports = function plRouter() {
       // Balance is a point-in-time snapshot, not scoped to the period:
       // all cash actually collected from orders + all manual cash movements.
       const { rows: balanceOrderRows } = await db.query(
-        `SELECT COALESCE(SUM(advance_amount), 0)::int AS collected FROM orders WHERE status != 'cancelled'`
+        `SELECT COALESCE(SUM(${ORDER_COLLECTED}), 0)::int AS collected FROM orders o WHERE o.status != 'cancelled'`
       );
       const { rows: balanceTxRows } = await db.query(
         `SELECT COALESCE(SUM(CASE WHEN flow = 'in' THEN amount ELSE -amount END), 0)::int AS net FROM transactions`
