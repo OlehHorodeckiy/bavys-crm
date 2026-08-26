@@ -28,11 +28,12 @@ function monthLabel(m) {
 export default function PL() {
   const [preset, setPreset] = useState("month");
   const [custom, setCustom] = useState({ from: "", to: "" });
-  const [modalTx, setModalTx] = useState(undefined);
+  const [modal, setModal] = useState(undefined); // undefined = closed, null-ish object = open
 
   const { from, to } = useMemo(() => periodToRange(preset, custom), [preset, custom]);
 
   const summary = useLiveData(() => api.getPlSummary({ from, to }), [from, to]);
+  const allTime = useLiveData(() => api.getPlSummary({}), []);
   const revenueBreakdown = useLiveData(() => api.getPlRevenueBreakdown({ from, to }), [from, to]);
   const expenseBreakdown = useLiveData(() => api.getPlExpenseBreakdown({ from, to }), [from, to]);
   const monthly = useLiveData(() => api.getPlMonthly(), []);
@@ -42,6 +43,7 @@ export default function PL() {
   if (summary.error) return <ErrorBanner message={summary.error} />;
 
   const s = summary.data;
+  const at = allTime.data;
   const rb = revenueBreakdown.data || {};
   const revenueRows = [
     { label: "Ігри", value: rb.games || 0 },
@@ -58,6 +60,15 @@ export default function PL() {
     transactions.reload();
   }
 
+  function reloadAll() {
+    transactions.reload();
+    allTime.reload();
+  }
+
+  const breakeven = at ? at.revenue - at.expenses : 0;
+  const breakevenLabel = breakeven === 0 ? "Вийшли в нуль" : breakeven > 0 ? "Заробили" : "Ще не вийшли в нуль";
+  const breakevenColor = breakeven === 0 ? "var(--muted)" : breakeven > 0 ? "var(--success, #5db872)" : "var(--error)";
+
   return (
     <div>
       <div className="page-header">
@@ -65,7 +76,10 @@ export default function PL() {
           <h1>P&L / Фінанси</h1>
           <p>Дохід, витрати, чистий прибуток і рух грошей бізнесу</p>
         </div>
-        <button className="btn btn-primary" onClick={() => setModalTx(null)}>+ Додати витрату</button>
+        <div style={{ display: "flex", gap: 10 }}>
+          <button className="btn btn-ghost" onClick={() => setModal({ initialType: "capital" })}>+ Внести власні кошти</button>
+          <button className="btn btn-primary" onClick={() => setModal({ initialType: "expense" })}>+ Додати витрату</button>
+        </div>
       </div>
 
       <div className="pill-row">
@@ -90,21 +104,12 @@ export default function PL() {
       )}
 
       <div className="grid grid-kpi" style={{ marginBottom: 18 }}>
+        <StatCard icon={<IconLayers size={18} />} iconColor="var(--body)" iconBg="#e8e0d2" label="Поточний баланс" value={formatMoney(s.balance)} />
         <StatCard icon={<IconCoins size={18} />} iconColor="var(--success, #5db872)" iconBg="#dcefe9" label="Дохід" value={formatMoney(s.revenue)} />
         <StatCard icon={<IconGift size={18} />} iconColor="var(--error)" iconBg="#f5dcdc" label="Витрати" value={formatMoney(s.expenses)} />
         <StatCard icon={<IconTrend size={18} />} iconColor="var(--primary)" iconBg="#f3ddd0" label="Чистий прибуток" value={formatMoney(s.net_profit)} />
-        <StatCard icon={<IconLayers size={18} />} iconColor="var(--body)" iconBg="#e8e0d2" label="Баланс" value={formatMoney(s.balance)} />
-      </div>
-      <div className="stats-strip card" style={{ marginBottom: 18 }}>
-        <div className="stats-strip-item">
-          <span className="stats-strip-label">Очікується до отримання</span>
-          <span className="stats-strip-value">{formatMoney(s.outstanding)}</span>
-        </div>
-        <div className="stats-strip-divider" />
-        <div className="stats-strip-item">
-          <span className="stats-strip-label">Замовлень у періоді</span>
-          <span className="stats-strip-value">{s.orders_count}</span>
-        </div>
+        <StatCard icon={<IconCoins size={18} />} iconColor="var(--muted)" iconBg="#efe9de" label="Власні кошти внесено" value={formatMoney(s.capital_contributed)} />
+        <StatCard icon={<IconClock size={18} />} iconColor="var(--amber, #e8a55a)" iconBg="#f5e4d2" label="До отримання" value={formatMoney(s.outstanding)} />
       </div>
 
       <div className="card" style={{ marginBottom: 18 }}>
@@ -167,7 +172,7 @@ export default function PL() {
         </div>
       </div>
 
-      <div className="card" style={{ overflowX: "auto" }}>
+      <div className="card" style={{ overflowX: "auto", marginBottom: 18 }}>
         <h3 className="section-title">Операції</h3>
         {transactions.loading ? (
           <Loading />
@@ -190,7 +195,7 @@ export default function PL() {
             </thead>
             <tbody>
               {transactions.data.map((t) => (
-                <tr key={t.id} className="order-row" onClick={() => setModalTx(t)}>
+                <tr key={t.id} className="order-row" onClick={() => setModal({ transaction: t })}>
                   <td>{formatDate(t.date)}</td>
                   <td>{t.description}</td>
                   <td>{t.category || "—"}</td>
@@ -209,12 +214,34 @@ export default function PL() {
         )}
       </div>
 
-      {modalTx !== undefined && (
+      {at && (
+        <div className="card">
+          <h3 className="section-title">За весь час</h3>
+          <div className="grid grid-kpi" style={{ marginBottom: 16 }}>
+            <StatCard icon={<IconCoins size={18} />} iconColor="var(--success, #5db872)" iconBg="#dcefe9" label="Зароблено" value={formatMoney(at.revenue)} />
+            <StatCard icon={<IconGift size={18} />} iconColor="var(--error)" iconBg="#f5dcdc" label="Витрачено" value={formatMoney(at.expenses)} />
+            <StatCard icon={<IconTrend size={18} />} iconColor="var(--primary)" iconBg="#f3ddd0" label="Прибуток" value={formatMoney(at.net_profit)} />
+            <StatCard icon={<IconCoins size={18} />} iconColor="var(--muted)" iconBg="#efe9de" label="Власних коштів внесено" value={formatMoney(at.capital_contributed)} />
+            <StatCard icon={<IconLayers size={18} />} iconColor="var(--body)" iconBg="#e8e0d2" label="Поточний баланс" value={formatMoney(at.balance)} />
+          </div>
+          <div className="totals-box" style={{ background: "transparent", border: `1px solid ${breakevenColor}`, padding: "16px 20px" }}>
+            <div>
+              <span>Точка 0 (дохід − витрати за весь час)</span>
+              <strong style={{ color: breakevenColor }}>
+                {breakevenLabel}{breakeven !== 0 ? `: ${formatMoney(Math.abs(breakeven))}` : ""}
+              </strong>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {modal !== undefined && (
         <TransactionFormModal
-          transaction={modalTx}
-          onClose={() => setModalTx(undefined)}
-          onSaved={() => transactions.reload()}
-          onDeleted={() => transactions.reload()}
+          transaction={modal.transaction}
+          initialType={modal.initialType}
+          onClose={() => setModal(undefined)}
+          onSaved={reloadAll}
+          onDeleted={reloadAll}
         />
       )}
     </div>

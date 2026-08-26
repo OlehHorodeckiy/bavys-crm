@@ -28,7 +28,7 @@ module.exports = function plRouter() {
         orderParams
       );
 
-      // Manual ledger entries that count toward P&L (personal never does).
+      // Manual ledger entries that count toward P&L (personal/capital never do).
       const txParams = [];
       const txConds = ["affects_pl = true", ...dateFilter("date", from, to, txParams)];
       const { rows: txRows } = await db.query(
@@ -37,6 +37,14 @@ module.exports = function plRouter() {
             COALESCE(SUM(amount) FILTER (WHERE flow = 'out'), 0)::int AS expenses
          FROM transactions WHERE ${txConds.join(" AND ")}`,
         txParams
+      );
+
+      // Owner capital contributed in the period — moves the balance, not the P&L.
+      const capitalParams = [];
+      const capitalConds = ["type = 'capital'", ...dateFilter("date", from, to, capitalParams)];
+      const { rows: capitalRows } = await db.query(
+        `SELECT COALESCE(SUM(amount), 0)::int AS contributed FROM transactions WHERE ${capitalConds.join(" AND ")}`,
+        capitalParams
       );
 
       // Balance is a point-in-time snapshot, not scoped to the period:
@@ -56,6 +64,7 @@ module.exports = function plRouter() {
         expenses,
         net_profit: revenue - expenses,
         balance: balanceOrderRows[0].collected + balanceTxRows[0].net,
+        capital_contributed: capitalRows[0].contributed,
         outstanding: orderRevRows[0].outstanding,
         orders_count: orderRevRows[0].orders_count,
       });

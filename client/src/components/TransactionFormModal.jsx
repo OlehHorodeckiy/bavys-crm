@@ -7,7 +7,7 @@ function today() {
   return new Date().toISOString().slice(0, 10);
 }
 
-function emptyForm(tx) {
+function emptyForm(tx, initialType) {
   if (tx) {
     return {
       date: tx.date,
@@ -25,18 +25,23 @@ function emptyForm(tx) {
     date: today(),
     description: "",
     category: "",
-    type: "expense",
-    flow: "out",
+    type: initialType || "expense",
+    flow: initialType === "capital" ? "in" : "out",
     amount: "",
     payment_method: "",
     comment: "",
-    affects_pl: true,
+    affects_pl: initialType !== "capital",
   };
 }
 
-export default function TransactionFormModal({ transaction, onClose, onSaved, onDeleted }) {
+const MODAL_TITLES = {
+  expense: "Нова витрата",
+  capital: "Внести власні кошти",
+};
+
+export default function TransactionFormModal({ transaction, initialType, onClose, onSaved, onDeleted }) {
   const isEdit = !!transaction;
-  const [form, setForm] = useState(() => emptyForm(transaction));
+  const [form, setForm] = useState(() => emptyForm(transaction, initialType));
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState(null);
@@ -46,8 +51,9 @@ export default function TransactionFormModal({ transaction, onClose, onSaved, on
     setForm((f) => {
       const next = { ...f, [field]: value };
       if (field === "type") {
-        if (value === "personal") next.affects_pl = false;
+        if (value === "personal" || value === "capital") next.affects_pl = false;
         else if (value === "expense" || value === "income") next.affects_pl = true;
+        if (value === "capital") next.flow = "in";
       }
       return next;
     });
@@ -60,7 +66,7 @@ export default function TransactionFormModal({ transaction, onClose, onSaved, on
     try {
       const payload = {
         date: form.date,
-        description: form.description,
+        description: form.description || (form.type === "capital" ? "Власні кошти" : ""),
         category: form.category || null,
         type: form.type,
         flow: form.flow,
@@ -103,7 +109,7 @@ export default function TransactionFormModal({ transaction, onClose, onSaved, on
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>{isEdit ? "Операція" : "Нова витрата"}</h2>
+          <h2>{isEdit ? "Операція" : (MODAL_TITLES[form.type] || "Нова операція")}</h2>
           <button className="close-btn" onClick={onClose}>✕</button>
         </div>
         <form onSubmit={handleSubmit}>
@@ -133,22 +139,29 @@ export default function TransactionFormModal({ transaction, onClose, onSaved, on
 
           <div className="field">
             <label>Опис</label>
-            <input className="input" value={form.description} onChange={(e) => update("description", e.target.value)} />
+            <input
+              className="input"
+              placeholder={form.type === "capital" ? "Власні кошти" : ""}
+              value={form.description}
+              onChange={(e) => update("description", e.target.value)}
+            />
           </div>
 
-          <div className="form-row">
-            <div className="field">
-              <label>Категорія</label>
-              <select className="input" value={form.category} onChange={(e) => update("category", e.target.value)}>
-                <option value="">Без категорії</option>
-                {EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-              </select>
+          {form.type !== "capital" && (
+            <div className="form-row">
+              <div className="field">
+                <label>Категорія</label>
+                <select className="input" value={form.category} onChange={(e) => update("category", e.target.value)}>
+                  <option value="">Без категорії</option>
+                  {EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div className="field">
+                <label>Спосіб оплати</label>
+                <input className="input" placeholder="Готівка, карта…" value={form.payment_method} onChange={(e) => update("payment_method", e.target.value)} />
+              </div>
             </div>
-            <div className="field">
-              <label>Спосіб оплати</label>
-              <input className="input" placeholder="Готівка, карта…" value={form.payment_method} onChange={(e) => update("payment_method", e.target.value)} />
-            </div>
-          </div>
+          )}
 
           {form.type === "other" && (
             <div className="field">
@@ -160,7 +173,7 @@ export default function TransactionFormModal({ transaction, onClose, onSaved, on
             </div>
           )}
 
-          {form.type !== "personal" && (
+          {form.type !== "personal" && form.type !== "capital" && (
             <div className="field" style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
               <input
                 type="checkbox"

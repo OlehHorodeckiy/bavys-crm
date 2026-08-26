@@ -4,15 +4,17 @@ const { TRANSACTION_TYPES, EXPENSE_CATEGORIES } = require("../helpers");
 
 const FIELDS = ["date", "description", "category", "type", "flow", "amount", "payment_method", "comment", "affects_pl"];
 
-// income -> in, expense/personal -> out, other -> whatever the client picked
+// income/capital -> in, expense/personal -> out, other -> whatever the client picked
 function resolveFlow(type, flow) {
-  if (type === "income") return "in";
+  if (type === "income" || type === "capital") return "in";
   if (type === "expense" || type === "personal") return "out";
   return flow === "in" ? "in" : "out";
 }
 
+// Personal spending and owner capital contributions move the balance but
+// must never count as business income/expense in the P&L math.
 function resolveAffectsPl(type, affectsPl) {
-  if (type === "personal") return false;
+  if (type === "personal" || type === "capital") return false;
   return affectsPl !== false;
 }
 
@@ -41,7 +43,8 @@ module.exports = function transactionsRouter(emitChange) {
 
   router.post("/", async (req, res, next) => {
     const body = req.body;
-    if (!body.description || !body.date || !body.amount) {
+    const description = body.description || (body.type === "capital" ? "Власні кошти" : "");
+    if (!description || !body.date || !body.amount) {
       return res.status(400).json({ error: "date, description, amount обов'язкові" });
     }
     try {
@@ -49,7 +52,7 @@ module.exports = function transactionsRouter(emitChange) {
       const affectsPl = resolveAffectsPl(body.type, body.affects_pl);
       const values = [
         body.date,
-        body.description,
+        description,
         body.category || null,
         body.type || "expense",
         flow,

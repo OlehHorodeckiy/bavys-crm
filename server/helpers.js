@@ -15,6 +15,7 @@ const TRANSACTION_TYPES = [
   { value: "expense", label: "Витрата" },
   { value: "income", label: "Дохід" },
   { value: "personal", label: "Особисте" },
+  { value: "capital", label: "Власні кошти" },
   { value: "other", label: "Інше" },
 ];
 
