@@ -1,6 +1,7 @@
 const express = require("express");
 const db = require("../db");
 const { withOrderTotals, STATUS_PIPELINE } = require("../helpers");
+const { loadCalculation, getLineItems, replaceLineItems } = require("./calculations");
 
 const ORDER_FIELDS = [
   "client_id",
@@ -16,6 +17,10 @@ const ORDER_FIELDS = [
   "advance_amount",
   "comment",
   "assigned_staff_id",
+  "tables_count",
+  "escort_hours",
+  "escort_people",
+  "calculation_id",
 ];
 
 const FIELD_DEFAULTS = {
@@ -63,10 +68,34 @@ module.exports = function ordersRouter(emitChange) {
 
   router.get("/statuses", (req, res) => res.json(STATUS_PIPELINE));
 
-  router.post("/", async (req, res, next) => {
-    const body = req.body;
-    if (!body.client_id) return res.status(400).json({ error: "client_id обов'язковий" });
+  router.get("/:id/items", async (req, res, next) => {
     try {
+      const items = await getLineItems("order", req.params.id);
+      res.json(items);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.post("/", async (req, res, next) => {
+    const body = { ...req.body };
+    try {
+      let calc = null;
+      if (body.calculation_id) {
+        calc = await loadCalculation(body.calculation_id);
+        if (calc) {
+          body.client_id ??= calc.client_id;
+          body.games_cost ??= calc.games_total;
+          body.tables_cost ??= calc.tables_total;
+          body.escort_cost ??= calc.escort_total;
+          body.logistics_cost ??= calc.delivery_amount;
+          body.tables_count ??= calc.tables_count;
+          body.escort_hours ??= calc.escort_hours;
+          body.escort_people ??= calc.escort_people;
+        }
+      }
+      if (!body.client_id) return res.status(400).json({ error: "client_id обов'язковий" });
+
       const values = ORDER_FIELDS.map((f) => body[f] ?? FIELD_DEFAULTS[f] ?? null);
       const placeholders = ORDER_FIELDS.map((_, i) => `$${i + 1}`).join(", ");
       const { rows } = await db.query(
@@ -74,6 +103,12 @@ module.exports = function ordersRouter(emitChange) {
         values
       );
       const order = rows[0];
+
+      if (calc) {
+        const calcItems = await getLineItems("calculation", calc.id);
+        await replaceLineItems("order", order.id, calcItems);
+        await db.query("UPDATE calculations SET status = 'converted', converted_order_id = $1 WHERE id = $2", [order.id, calc.id]);
+      }
 
       await logInteraction(body.client_id, order.id, "status_change", "Замовлення створено");
 
@@ -119,6 +154,11 @@ module.exports = function ordersRouter(emitChange) {
       if (!existing) return res.status(404).json({ error: "Замовлення не знайдено" });
 
       await db.query("UPDATE interactions SET order_id = NULL WHERE order_id = $1", [req.params.id]);
+      await db.query(
+        "UPDATE calculations SET converted_order_id = NULL, status = 'active' WHERE converted_order_id = $1",
+        [req.params.id]
+      );
+      await db.query("DELETE FROM line_items WHERE owner_type = 'order' AND owner_id = $1", [req.params.id]);
       await db.query("DELETE FROM orders WHERE id = $1", [req.params.id]);
 
       emitChange("order:deleted", { id: Number(req.params.id) });

@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { HashRouter, NavLink, Route, Routes } from "react-router-dom";
 import Logo from "./components/Logo.jsx";
-import { IconOverview, IconGift, IconLayers, IconUsers, IconCoins, IconClock, IconMenu, IconTrend } from "./components/icons.jsx";
+import { IconOverview, IconGift, IconLayers, IconUsers, IconCoins, IconClock, IconMenu, IconTrend, IconCalculator } from "./components/icons.jsx";
 import { useBodyScrollLock } from "./useBodyScrollLock.js";
 import Dashboard from "./pages/Dashboard.jsx";
 import Orders from "./pages/Orders.jsx";
+import Calculator from "./pages/Calculator.jsx";
 import Statuses from "./pages/Statuses.jsx";
 import Clients from "./pages/Clients.jsx";
 import ClientDetail from "./pages/ClientDetail.jsx";
@@ -15,6 +16,7 @@ import History from "./pages/History.jsx";
 const NAV_ITEMS = [
   { to: "/", label: "Дашборд", icon: IconOverview, end: true },
   { to: "/orders", label: "Замовлення", icon: IconGift },
+  { to: "/calculator", label: "Підрахунок", icon: IconCalculator },
   { to: "/statuses", label: "Статуси замовлень", icon: IconLayers },
   { to: "/clients", label: "Клієнти", icon: IconUsers },
   { to: "/finance", label: "Доходи", icon: IconCoins },
@@ -67,6 +69,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/orders" element={<Orders />} />
+          <Route path="/calculator" element={<Calculator />} />
           <Route path="/statuses" element={<Statuses />} />
           <Route path="/clients" element={<Clients />} />
           <Route path="/clients/:id" element={<ClientDetail />} />

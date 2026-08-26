@@ -159,6 +159,16 @@ a { color: inherit; text-decoration: none; }
 .grid-2 { grid-template-columns: 1.4fr 1fr; }
 .grid-charts { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
 
+/* Fixed 3-up KPI grid — fills evenly across full rows instead of leaving
+   a lone stretched card when the count doesn't fit one row (e.g. 5-6 items). */
+.grid-kpi-3 { grid-template-columns: repeat(3, 1fr); }
+@media (max-width: 900px) {
+  .grid-kpi-3 { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 480px) {
+  .grid-kpi-3 { grid-template-columns: 1fr; }
+}
+
 @media (max-width: 900px) {
   .grid-2 { grid-template-columns: 1fr; }
 }
@@ -580,3 +590,100 @@ button:focus-visible,
 @media (prefers-reduced-motion: reduce) {
   .grid-kpi > .card { animation: none; }
 }
+
+/* Підрахунок (quote calculator) */
+.calc-layout {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 18px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .calc-layout { grid-template-columns: 1fr; }
+}
+
+.calc-summary { position: sticky; top: 20px; }
+@media (max-width: 900px) {
+  .calc-summary { position: static; }
+}
+
+.game-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.game-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--hairline);
+  background: var(--canvas);
+  cursor: pointer;
+  text-align: left;
+  font-family: "Inter", sans-serif;
+  font-size: 0.88rem;
+  font-weight: 500;
+  color: var(--ink);
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.game-tile:hover { background: var(--surface-soft); }
+.game-tile.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--on-primary);
+}
+.game-tile-price {
+  font-size: 0.74rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.game-tile.active .game-tile-price { color: rgba(255, 255, 255, 0.85); }
+
+.service-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--hairline-soft);
+}
+.service-row:last-of-type { border-bottom: none; }
+
+.stepper {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.stepper button {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--hairline);
+  background: var(--canvas);
+  cursor: pointer;
+  font-size: 1rem;
+  color: var(--ink);
+}
+.stepper button:hover { background: var(--surface-soft); }
+.stepper span { min-width: 18px; text-align: center; font-weight: 600; }
+
+.switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+.switch input { accent-color: var(--primary); width: 16px; height: 16px; }
+.switch span { font-size: 0.85rem; font-weight: 500; color: var(--muted); }
+
+.calc-line-items { display: flex; flex-direction: column; }
+.calc-line-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--hairline-soft);
+  font-size: 0.88rem;
+  font-family: "Inter", sans-serif;
+}
+.calc-line-item:last-child { border-bottom: none; }
+.calc-line-item-package span:first-child { color: var(--body); }

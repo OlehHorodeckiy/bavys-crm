@@ -103,7 +103,7 @@ export default function PL() {
         </div>
       )}
 
-      <div className="grid grid-kpi" style={{ marginBottom: 18 }}>
+      <div className="grid grid-kpi grid-kpi-3" style={{ marginBottom: 18 }}>
         <StatCard icon={<IconLayers size={18} />} iconColor="var(--body)" iconBg="#e8e0d2" label="Поточний баланс" value={formatMoney(s.balance)} />
         <StatCard icon={<IconCoins size={18} />} iconColor="var(--success, #5db872)" iconBg="#dcefe9" label="Дохід" value={formatMoney(s.revenue)} />
         <StatCard icon={<IconGift size={18} />} iconColor="var(--error)" iconBg="#f5dcdc" label="Витрати" value={formatMoney(s.expenses)} />
@@ -217,7 +217,7 @@ export default function PL() {
       {at && (
         <div className="card">
           <h3 className="section-title">За весь час</h3>
-          <div className="grid grid-kpi" style={{ marginBottom: 16 }}>
+          <div className="grid grid-kpi grid-kpi-3" style={{ marginBottom: 16 }}>
             <StatCard icon={<IconCoins size={18} />} iconColor="var(--success, #5db872)" iconBg="#dcefe9" label="Зароблено" value={formatMoney(at.revenue)} />
             <StatCard icon={<IconGift size={18} />} iconColor="var(--error)" iconBg="#f5dcdc" label="Витрачено" value={formatMoney(at.expenses)} />
             <StatCard icon={<IconTrend size={18} />} iconColor="var(--primary)" iconBg="#f3ddd0" label="Прибуток" value={formatMoney(at.net_profit)} />

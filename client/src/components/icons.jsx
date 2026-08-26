@@ -15,6 +15,22 @@ function Svg({ size = 20, children }) {
   );
 }
 
+export function IconCalculator(props) {
+  return (
+    <Svg {...props}>
+      <rect x="5" y="3" width="14" height="18" rx="2" />
+      <path d="M8 7H16" />
+      <path d="M8.5 12H8.51" />
+      <path d="M12 12H12.01" />
+      <path d="M15.5 12H15.51" />
+      <path d="M8.5 15.5H8.51" />
+      <path d="M12 15.5H12.01" />
+      <path d="M15.5 15.5H15.51" />
+      <path d="M8.5 19H15.5" />
+    </Svg>
+  );
+}
+
 export function IconMenu(props) {
   return (
     <Svg {...props}>

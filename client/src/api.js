@@ -44,6 +44,14 @@ export const api = {
   getPlRevenueBreakdown: (params = {}) => request(`/pl/revenue-breakdown${qs(params)}`),
   getPlExpenseBreakdown: (params = {}) => request(`/pl/expense-breakdown${qs(params)}`),
   getPlMonthly: (params = {}) => request(`/pl/monthly${qs(params)}`),
+
+  getGamesMeta: () => request("/calculations/games"),
+  getCalculations: (params = {}) => request(`/calculations${qs(params)}`),
+  getCalculation: (id) => request(`/calculations/${id}`),
+  createCalculation: (data) => request("/calculations", { method: "POST", body: JSON.stringify(data) }),
+  updateCalculation: (id, data) => request(`/calculations/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  deleteCalculation: (id) => request(`/calculations/${id}`, { method: "DELETE" }),
+  getOrderItems: (id) => request(`/orders/${id}/items`),
 };
 
 function qs(params) {

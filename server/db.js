@@ -50,6 +50,13 @@ async function migrateOrdersTable() {
 
   await pool.query(`UPDATE orders SET status = 'waiting_advance' WHERE status IN ('new', 'confirmed', 'advance_paid')`);
   await pool.query(`ALTER TABLE orders ALTER COLUMN status SET DEFAULT 'waiting_advance'`);
+
+  // Detail behind the aggregate cost fields, populated when an order is
+  // built from a Підрахунок (calculator) — needed for future per-game stats.
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS tables_count INTEGER`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS escort_hours INTEGER`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS escort_people INTEGER`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS calculation_id INTEGER`);
 }
 
 async function init() {
@@ -114,6 +121,34 @@ async function init() {
       comment TEXT,
       affects_pl BOOLEAN NOT NULL DEFAULT true,
       created_by TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    -- A quick client-facing price quote ("Підрахунок") built by clicking
+    -- games. Not an order yet — becomes one only via /convert.
+    CREATE TABLE IF NOT EXISTS calculations (
+      id SERIAL PRIMARY KEY,
+      client_id INTEGER REFERENCES clients(id),
+      status TEXT NOT NULL DEFAULT 'active',
+      tables_count INTEGER NOT NULL DEFAULT 0,
+      escort_hours INTEGER NOT NULL DEFAULT 0,
+      escort_people INTEGER NOT NULL DEFAULT 0,
+      delivery_amount INTEGER NOT NULL DEFAULT 0,
+      converted_order_id INTEGER REFERENCES orders(id),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    -- Individual games selected on a calculation or carried onto an order,
+    -- kept as separate rows (not folded into one total) so popularity and
+    -- per-game revenue can be reported later without re-deriving it.
+    CREATE TABLE IF NOT EXISTS line_items (
+      id SERIAL PRIMARY KEY,
+      owner_type TEXT NOT NULL,
+      owner_id INTEGER NOT NULL,
+      game_name TEXT NOT NULL,
+      is_package BOOLEAN NOT NULL DEFAULT false,
+      price INTEGER NOT NULL DEFAULT 0,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);

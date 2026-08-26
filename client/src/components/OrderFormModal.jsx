@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import { STATUS_PIPELINE, EVENT_TYPES, formatMoney } from "../statuses";
 import { useBodyScrollLock } from "../useBodyScrollLock";
@@ -32,7 +32,20 @@ function emptyForm(order) {
   };
 }
 
-export default function OrderFormModal({ clients, order, onClose, onSaved, onDeleted }) {
+function applyCalcToForm(calc, setForm, setSelectedClient) {
+  setForm((f) => ({
+    ...f,
+    games_cost: calc.games_total,
+    tables_cost: calc.tables_total,
+    escort_cost: calc.escort_total,
+    logistics_cost: calc.delivery_amount,
+  }));
+  if (calc.client_id) {
+    setSelectedClient({ id: calc.client_id, name: calc.client_name, phone: calc.client_phone });
+  }
+}
+
+export default function OrderFormModal({ clients, order, initialCalculation, onClose, onSaved, onDeleted }) {
   const isEdit = !!order;
   const [form, setForm] = useState(() => emptyForm(order));
   const [mode, setMode] = useState("existing");
@@ -44,7 +57,27 @@ export default function OrderFormModal({ clients, order, onClose, onSaved, onDel
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState(null);
+  const [calculationId, setCalculationId] = useState(initialCalculation?.id || null);
+  const [appliedCalc, setAppliedCalc] = useState(initialCalculation || null);
+  const [activeCalcs, setActiveCalcs] = useState([]);
   useBodyScrollLock();
+
+  useEffect(() => {
+    if (isEdit) return;
+    api.getCalculations({ status: "active" }).then(setActiveCalcs).catch(() => {});
+  }, [isEdit]);
+
+  useEffect(() => {
+    if (initialCalculation) applyCalcToForm(initialCalculation, setForm, setSelectedClient);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function pickCalculation(id) {
+    const calc = activeCalcs.find((c) => String(c.id) === String(id));
+    setCalculationId(calc ? calc.id : null);
+    setAppliedCalc(calc || null);
+    if (calc) applyCalcToForm(calc, setForm, setSelectedClient);
+  }
 
   const matches = useMemo(() => {
     const q = clientQuery.trim().toLowerCase();
@@ -87,6 +120,7 @@ export default function OrderFormModal({ clients, order, onClose, onSaved, onDel
         logistics_cost: num(form.logistics_cost),
         advance_amount: num(form.advance_amount),
         comment: form.comment,
+        calculation_id: calculationId || undefined,
       };
 
       if (isEdit) {
@@ -124,6 +158,25 @@ export default function OrderFormModal({ clients, order, onClose, onSaved, onDel
           <button className="close-btn" onClick={onClose}>✕</button>
         </div>
         <form onSubmit={handleSubmit}>
+          {!isEdit && activeCalcs.length > 0 && (
+            <div className="field">
+              <label>Підрахунок (необов'язково)</label>
+              <select className="input" value={calculationId || ""} onChange={(e) => pickCalculation(e.target.value)}>
+                <option value="">Без підрахунку</option>
+                {activeCalcs.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    №{c.id} · {c.client_name || "без клієнта"} · {formatMoney(c.total_amount)}
+                  </option>
+                ))}
+              </select>
+              {appliedCalc && (
+                <div style={{ fontSize: "0.78rem", color: "var(--muted)", marginTop: 4 }}>
+                  Суми заповнено з підрахунку №{appliedCalc.id} — можна відредагувати нижче.
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="field">
             <label>Клієнт</label>
             {isEdit || selectedClient ? (
