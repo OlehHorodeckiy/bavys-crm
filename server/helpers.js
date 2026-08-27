@@ -25,6 +25,23 @@ function withOrderTotals(order) {
   return { ...order, total_amount: totalAmount, collected_amount: collected, remaining_balance: remainingBalance };
 }
 
+// Statuses whose position is derived from money collected, not chosen by
+// hand — "Подія проведена" and "Скасовано" fall outside this and are never
+// touched by a payment add/edit/delete.
+const FORWARD_STATUSES = ["waiting_advance", "advance_paid", "paid"];
+
+// The single source of truth for what a payment does to an order's status:
+// full amount in → paid, partial → advance_paid, nothing collected →
+// waiting_advance. Never depends on which action (create/edit/delete)
+// triggered the recalculation, so the same payment total always yields the
+// same status — that's what makes "one real payment = one credit" hold.
+function deriveStatusFromCollected(currentStatus, collected, totalAmount) {
+  if (!FORWARD_STATUSES.includes(currentStatus)) return currentStatus;
+  if (collected <= 0) return "waiting_advance";
+  if (collected >= totalAmount) return "paid";
+  return "advance_paid";
+}
+
 const TRANSACTION_TYPES = [
   { value: "expense", label: "Витрата" },
   { value: "income", label: "Дохід" },
@@ -49,6 +66,8 @@ module.exports = {
   PAYMENT_STATUSES,
   PAYMENT_METHODS,
   withOrderTotals,
+  FORWARD_STATUSES,
+  deriveStatusFromCollected,
   TRANSACTION_TYPES,
   EXPENSE_CATEGORIES,
 };

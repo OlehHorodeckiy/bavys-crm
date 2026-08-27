@@ -23,9 +23,8 @@ export default function Orders() {
 
   async function handleStatusChange(order, status) {
     if (status === order.status) return;
-    const paymentKind = PAYMENT_STATUSES[status];
-    if (paymentKind) {
-      setPaymentRequest({ order, kind: paymentKind });
+    if (PAYMENT_STATUSES[status]) {
+      setPaymentRequest(order);
       return;
     }
     await api.updateOrder(order.id, { status });
@@ -125,10 +124,10 @@ export default function Orders() {
 
       {paymentRequest && (
         <PaymentModal
-          order={paymentRequest.order}
-          kind={paymentRequest.kind}
+          order={paymentRequest}
           onClose={() => setPaymentRequest(null)}
-          onSaved={() => orders.reload()}
+          onSaved={() => { setPaymentRequest(null); orders.reload(); }}
+          onDeleted={() => { setPaymentRequest(null); orders.reload(); }}
         />
       )}
     </div>

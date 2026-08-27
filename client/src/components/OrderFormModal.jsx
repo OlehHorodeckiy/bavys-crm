@@ -1,12 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
-import { STATUS_PIPELINE, PAYMENT_STATUSES, EVENT_TYPES, formatMoney } from "../statuses";
+import { STATUS_PIPELINE, PAYMENT_STATUSES, PAYMENT_METHODS, EVENT_TYPES, formatDate, formatMoney } from "../statuses";
 import { useBodyScrollLock } from "../useBodyScrollLock";
 import PaymentModal from "./PaymentModal.jsx";
-
-// Statuses assignable directly from this form — "Оплачений аванс"/"Оплачено"
-// can only be reached by recording a real payment (see the buttons below).
-const DIRECT_STATUSES = STATUS_PIPELINE.filter((s) => !PAYMENT_STATUSES[s.value]);
 
 function emptyForm(order) {
   if (order) {
@@ -31,6 +27,8 @@ function emptyForm(order) {
     tables_cost: "",
     escort_cost: "",
     logistics_cost: "",
+    advance_amount: "",
+    payment_method: "cash",
     comment: "",
   };
 }
@@ -63,7 +61,9 @@ export default function OrderFormModal({ clients, order, initialCalculation, onC
   const [calculationId, setCalculationId] = useState(initialCalculation?.id || null);
   const [appliedCalc, setAppliedCalc] = useState(initialCalculation || null);
   const [activeCalcs, setActiveCalcs] = useState([]);
-  const [paymentKind, setPaymentKind] = useState(null);
+  const [liveOrder, setLiveOrder] = useState(order);
+  const [payments, setPayments] = useState([]);
+  const [paymentModal, setPaymentModal] = useState(null); // null=closed, {}=add, {payment}=edit
   useBodyScrollLock();
 
   useEffect(() => {
@@ -73,6 +73,28 @@ export default function OrderFormModal({ clients, order, initialCalculation, onC
 
   useEffect(() => {
     if (initialCalculation) applyCalcToForm(initialCalculation, setForm, setSelectedClient);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function fetchLive() {
+    if (!isEdit) return Promise.resolve();
+    return Promise.all([api.getOrder(order.id), api.getOrderPayments(order.id)]).then(([o, p]) => {
+      setLiveOrder(o);
+      setPayments(p);
+      setForm((f) => ({ ...f, status: o.status }));
+    });
+  }
+
+  // Called after a payment is added/edited/deleted from within this modal —
+  // refreshes both the local view and the parent list (socket updates alone
+  // don't reach a modal holding a stale order snapshot).
+  function refreshOrder() {
+    fetchLive();
+    onSaved?.();
+  }
+
+  useEffect(() => {
+    fetchLive();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -95,9 +117,17 @@ export default function OrderFormModal({ clients, order, initialCalculation, onC
     setForm((f) => ({ ...f, [field]: value }));
   }
 
+  function handleStatusSelect(value) {
+    if (isEdit && value !== form.status && PAYMENT_STATUSES[value]) {
+      setPaymentModal({});
+      return;
+    }
+    update("status", value);
+  }
+
   const num = (v) => Number(v) || 0;
   const totalAmount = num(form.games_cost) + num(form.tables_cost) + num(form.escort_cost) + num(form.logistics_cost);
-  const collectedAmount = isEdit ? order.collected_amount || 0 : 0;
+  const collectedAmount = isEdit ? liveOrder.collected_amount || 0 : num(form.advance_amount);
   const remaining = Math.max(totalAmount - collectedAmount, 0);
 
   async function handleSubmit(e) {
@@ -130,6 +160,8 @@ export default function OrderFormModal({ clients, order, initialCalculation, onC
       if (isEdit) {
         await api.updateOrder(order.id, payload);
       } else {
+        payload.advance_amount = num(form.advance_amount);
+        payload.payment_method = form.payment_method;
         await api.createOrder(payload);
       }
       onSaved?.();
@@ -152,6 +184,12 @@ export default function OrderFormModal({ clients, order, initialCalculation, onC
       setError(err.message);
       setDeleting(false);
     }
+  }
+
+  async function handleDeletePayment(payment) {
+    if (!window.confirm("Видалити цей платіж?")) return;
+    await api.deleteOrderPayment(order.id, payment.id);
+    refreshOrder();
   }
 
   return (
@@ -273,29 +311,11 @@ export default function OrderFormModal({ clients, order, initialCalculation, onC
             </div>
             <div className="field">
               <label>Статус</label>
-              <select className="input" value={form.status} onChange={(e) => update("status", e.target.value)}>
-                {!DIRECT_STATUSES.some((s) => s.value === form.status) && (
-                  <option value={form.status} disabled>
-                    {STATUS_PIPELINE.find((s) => s.value === form.status)?.label}
-                  </option>
-                )}
-                {DIRECT_STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+              <select className="input" value={form.status} onChange={(e) => handleStatusSelect(e.target.value)}>
+                {STATUS_PIPELINE.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
               </select>
             </div>
           </div>
-
-          {isEdit && (form.status === "waiting_advance" || form.status === "advance_paid") && (
-            <div className="field">
-              <label>Оплата</label>
-              <button
-                type="button"
-                className="btn btn-ghost"
-                onClick={() => setPaymentKind(form.status === "waiting_advance" ? "advance" : "final")}
-              >
-                {form.status === "waiting_advance" ? "Внести аванс" : "Внести доплату"}
-              </button>
-            </div>
-          )}
 
           <div className="form-row">
             <div className="field">
@@ -319,11 +339,78 @@ export default function OrderFormModal({ clients, order, initialCalculation, onC
             </div>
           </div>
 
+          {!isEdit && (
+            <div className="form-row">
+              <div className="field">
+                <label>Сума авансу, грн</label>
+                <input
+                  type="number"
+                  min="0"
+                  max={totalAmount}
+                  className="input"
+                  value={form.advance_amount}
+                  onChange={(e) => update("advance_amount", e.target.value)}
+                />
+              </div>
+              <div className="field">
+                <label>Спосіб оплати</label>
+                <select className="input" value={form.payment_method} onChange={(e) => update("payment_method", e.target.value)}>
+                  {PAYMENT_METHODS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+                </select>
+              </div>
+            </div>
+          )}
+
           <div className="totals-box">
             <div><span>Загальна сума</span><strong>{formatMoney(totalAmount)}</strong></div>
-            {isEdit && <div><span>Отримано</span><strong>{formatMoney(collectedAmount)}</strong></div>}
+            <div><span>Отримано</span><strong>{formatMoney(collectedAmount)}</strong></div>
             <div><span>До оплати</span><strong>{formatMoney(remaining)}</strong></div>
           </div>
+
+          {isEdit && (
+            <div className="field">
+              <label>Платежі</label>
+              {payments.length === 0 ? (
+                <div style={{ color: "var(--muted)", fontSize: "0.85rem" }}>Ще немає платежів</div>
+              ) : (
+                <div>
+                  {payments.map((p) => (
+                    <div
+                      key={p.id}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        padding: "8px 0",
+                        borderBottom: "1px solid var(--border)",
+                      }}
+                    >
+                      <div>
+                        <strong>{formatMoney(p.amount)}</strong>
+                        <span style={{ color: "var(--muted)", marginLeft: 8, fontSize: "0.85rem" }}>
+                          {PAYMENT_METHODS.find((m) => m.value === p.method)?.label || p.method} · {formatDate(p.date)}
+                        </span>
+                      </div>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button
+                          type="button"
+                          className="btn-ghost"
+                          style={{ height: 28, padding: "0 10px" }}
+                          onClick={() => setPaymentModal({ payment: p })}
+                        >
+                          Редагувати
+                        </button>
+                        <button type="button" className="row-delete-btn" title="Видалити" onClick={() => handleDeletePayment(p)}>✕</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <button type="button" className="btn btn-ghost" style={{ marginTop: 10 }} onClick={() => setPaymentModal({})}>
+                + Додати платіж
+              </button>
+            </div>
+          )}
 
           <div className="field">
             <label>Коментар</label>
@@ -348,15 +435,13 @@ export default function OrderFormModal({ clients, order, initialCalculation, onC
         </form>
       </div>
 
-      {paymentKind && (
+      {paymentModal && (
         <PaymentModal
-          order={{ ...order, total_amount: totalAmount, collected_amount: collectedAmount, remaining_balance: remaining }}
-          kind={paymentKind}
-          onClose={() => setPaymentKind(null)}
-          onSaved={() => {
-            onSaved?.();
-            onClose();
-          }}
+          order={{ ...liveOrder, total_amount: totalAmount, collected_amount: collectedAmount, remaining_balance: remaining }}
+          payment={paymentModal.payment}
+          onClose={() => setPaymentModal(null)}
+          onSaved={() => { setPaymentModal(null); refreshOrder(); }}
+          onDeleted={() => { setPaymentModal(null); refreshOrder(); }}
         />
       )}
     </div>

@@ -1,6 +1,12 @@
 const express = require("express");
 const db = require("../db");
-const { withOrderTotals, STATUS_PIPELINE, PAYMENT_STATUSES, PAYMENT_METHODS } = require("../helpers");
+const {
+  withOrderTotals,
+  STATUS_PIPELINE,
+  PAYMENT_STATUSES,
+  PAYMENT_METHODS,
+  deriveStatusFromCollected,
+} = require("../helpers");
 const { loadCalculation, getLineItems, replaceLineItems } = require("./calculations");
 
 const ORDER_FIELDS = [
@@ -130,6 +136,22 @@ module.exports = function ordersRouter(emitChange) {
       }
       if (!body.client_id) return res.status(400).json({ error: "client_id обов'язковий" });
 
+      // An advance can be recorded in the same request that creates the
+      // order — capped at the order's own total so it can never overshoot,
+      // and only auto-promotes the status when the caller left it at the
+      // default ("waiting_advance"); an explicit status (e.g. backfilling a
+      // "Подія проведена" record) is always respected as-is.
+      const totalAmount =
+        (Number(body.games_cost) || 0) +
+        (Number(body.tables_cost) || 0) +
+        (Number(body.escort_cost) || 0) +
+        (Number(body.logistics_cost) || 0);
+      const advanceAmount = Math.min(Math.max(Number(body.advance_amount) || 0, 0), totalAmount);
+      const advanceMethod = ["card", "cash"].includes(body.payment_method) ? body.payment_method : "cash";
+      if (advanceAmount > 0 && (!body.status || body.status === "waiting_advance")) {
+        body.status = advanceAmount >= totalAmount ? "paid" : "advance_paid";
+      }
+
       const values = ORDER_FIELDS.map((f) => body[f] ?? FIELD_DEFAULTS[f] ?? null);
       const placeholders = ORDER_FIELDS.map((_, i) => `$${i + 1}`).join(", ");
       const { rows } = await db.query(
@@ -137,6 +159,13 @@ module.exports = function ordersRouter(emitChange) {
         values
       );
       const order = rows[0];
+
+      if (advanceAmount > 0) {
+        await db.query(
+          "INSERT INTO payments (order_id, amount, method, kind, date) VALUES ($1,$2,$3,'advance', CURRENT_DATE::text)",
+          [order.id, advanceAmount, advanceMethod]
+        );
+      }
 
       if (calc) {
         const calcItems = await getLineItems("calculation", calc.id);
@@ -146,7 +175,7 @@ module.exports = function ordersRouter(emitChange) {
 
       await logInteraction(body.client_id, order.id, "status_change", "Замовлення створено");
 
-      const full = withOrderTotals({ ...order, collected_amount: 0 });
+      const full = withOrderTotals({ ...order, collected_amount: advanceAmount });
       emitChange("order:created", full);
       res.status(201).json(full);
     } catch (err) {
@@ -193,45 +222,120 @@ module.exports = function ordersRouter(emitChange) {
     }
   });
 
+  async function currentTotals(order) {
+    const totalAmount = order.games_cost + order.tables_cost + order.escort_cost + order.logistics_cost;
+    const { rows } = await db.query(
+      "SELECT COALESCE(SUM(amount),0)::int AS collected FROM payments WHERE order_id = $1",
+      [order.id]
+    );
+    return { totalAmount, collected: rows[0].collected };
+  }
+
+  async function applyDerivedStatus(order, newCollected, totalAmount) {
+    const newStatus = deriveStatusFromCollected(order.status, newCollected, totalAmount);
+    if (newStatus !== order.status) {
+      await db.query("UPDATE orders SET status = $1, updated_at = NOW() WHERE id = $2", [newStatus, order.id]);
+    }
+    const { rows } = await db.query("SELECT * FROM orders WHERE id = $1", [order.id]);
+    return withOrderTotals({ ...rows[0], collected_amount: newCollected });
+  }
+
   // The only way an order can move to "Оплачений аванс" or "Оплачено" —
-  // records a standalone payment (advance and final payments never overwrite
-  // each other) and flips the status in the same request.
+  // records a standalone payment (never overwrites an earlier one) and lets
+  // the resulting status fall out of the total collected, so it can never
+  // exceed the order's total and never double-counts an existing payment.
   router.post("/:id/payments", async (req, res, next) => {
     try {
       const { rows: existingRows } = await db.query("SELECT * FROM orders WHERE id = $1", [req.params.id]);
       const existing = existingRows[0];
       if (!existing) return res.status(404).json({ error: "Замовлення не знайдено" });
 
-      const { amount, method, kind } = req.body;
+      const { amount, method } = req.body;
       const amountNum = Math.abs(Number(amount)) || 0;
       if (amountNum <= 0) return res.status(400).json({ error: "Сума платежу обов'язкова" });
       if (!["card", "cash"].includes(method)) return res.status(400).json({ error: "Спосіб оплати: card або cash" });
-      const paymentKind = kind === "final" ? "final" : "advance";
-      const newStatus = paymentKind === "final" ? "paid" : "advance_paid";
 
+      const { totalAmount, collected } = await currentTotals(existing);
+      const remaining = Math.max(totalAmount - collected, 0);
+      if (amountNum > remaining) {
+        return res.status(400).json({ error: `Сума перевищує залишок до оплати (${remaining} грн)` });
+      }
+
+      const kind = collected === 0 ? "advance" : "final";
       await db.query(
         "INSERT INTO payments (order_id, amount, method, kind, date) VALUES ($1,$2,$3,$4, CURRENT_DATE::text)",
-        [existing.id, amountNum, method, paymentKind]
+        [existing.id, amountNum, method, kind]
       );
-      await db.query("UPDATE orders SET status = $1, updated_at = NOW() WHERE id = $2", [newStatus, existing.id]);
 
       const methodLabel = PAYMENT_METHODS.find((m) => m.value === method)?.label || method;
-      const kindLabel = paymentKind === "final" ? "Доплату" : "Аванс";
-      await logInteraction(
-        existing.client_id,
-        existing.id,
-        "status_change",
-        `${kindLabel} отримано: ${amountNum} грн (${methodLabel})`
-      );
+      await logInteraction(existing.client_id, existing.id, "status_change", `Платіж отримано: ${amountNum} грн (${methodLabel})`);
 
-      const { rows: orderRows } = await db.query("SELECT * FROM orders WHERE id = $1", [existing.id]);
-      const { rows: collectedRows } = await db.query(
-        "SELECT COALESCE(SUM(amount),0)::int AS collected_amount FROM payments WHERE order_id = $1",
-        [existing.id]
-      );
-      const full = withOrderTotals({ ...orderRows[0], collected_amount: collectedRows[0].collected_amount });
+      const full = await applyDerivedStatus(existing, collected + amountNum, totalAmount);
       emitChange("order:updated", full);
       res.status(201).json(full);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Edit an existing payment's amount/method — the order's collected total,
+  // remaining balance, status and card/cash split all recompute from this.
+  router.put("/:id/payments/:paymentId", async (req, res, next) => {
+    try {
+      const { rows: existingRows } = await db.query("SELECT * FROM orders WHERE id = $1", [req.params.id]);
+      const existing = existingRows[0];
+      if (!existing) return res.status(404).json({ error: "Замовлення не знайдено" });
+
+      const { rows: paymentRows } = await db.query("SELECT * FROM payments WHERE id = $1 AND order_id = $2", [
+        req.params.paymentId,
+        req.params.id,
+      ]);
+      const payment = paymentRows[0];
+      if (!payment) return res.status(404).json({ error: "Платіж не знайдено" });
+
+      const { amount, method } = req.body;
+      const amountNum = Math.abs(Number(amount)) || 0;
+      if (amountNum <= 0) return res.status(400).json({ error: "Сума платежу обов'язкова" });
+      if (!["card", "cash"].includes(method)) return res.status(400).json({ error: "Спосіб оплати: card або cash" });
+
+      const { totalAmount, collected } = await currentTotals(existing);
+      const collectedExcluding = collected - payment.amount;
+      const ceiling = Math.max(totalAmount - collectedExcluding, 0);
+      if (amountNum > ceiling) {
+        return res.status(400).json({ error: `Сума не може перевищувати ${ceiling} грн` });
+      }
+
+      await db.query("UPDATE payments SET amount = $1, method = $2 WHERE id = $3", [amountNum, method, payment.id]);
+
+      const full = await applyDerivedStatus(existing, collectedExcluding + amountNum, totalAmount);
+      emitChange("order:updated", full);
+      res.json(full);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Delete a payment — money it represented is removed from the balance and
+  // the status recomputes from what's left (never touches completed/cancelled).
+  router.delete("/:id/payments/:paymentId", async (req, res, next) => {
+    try {
+      const { rows: existingRows } = await db.query("SELECT * FROM orders WHERE id = $1", [req.params.id]);
+      const existing = existingRows[0];
+      if (!existing) return res.status(404).json({ error: "Замовлення не знайдено" });
+
+      const { rows: paymentRows } = await db.query("SELECT * FROM payments WHERE id = $1 AND order_id = $2", [
+        req.params.paymentId,
+        req.params.id,
+      ]);
+      const payment = paymentRows[0];
+      if (!payment) return res.status(404).json({ error: "Платіж не знайдено" });
+
+      await db.query("DELETE FROM payments WHERE id = $1", [payment.id]);
+
+      const { totalAmount, collected } = await currentTotals(existing);
+      const full = await applyDerivedStatus(existing, collected, totalAmount);
+      emitChange("order:updated", full);
+      res.json(full);
     } catch (err) {
       next(err);
     }

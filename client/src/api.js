@@ -20,12 +20,16 @@ export const api = {
   getChannels: () => request("/dashboard/channels"),
 
   getOrders: () => request("/orders"),
+  getOrder: (id) => request(`/orders/${id}`),
   getStatuses: () => request("/orders/statuses"),
   createOrder: (data) => request("/orders", { method: "POST", body: JSON.stringify(data) }),
   updateOrder: (id, data) => request(`/orders/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   deleteOrder: (id) => request(`/orders/${id}`, { method: "DELETE" }),
   getOrderPayments: (id) => request(`/orders/${id}/payments`),
   addOrderPayment: (id, data) => request(`/orders/${id}/payments`, { method: "POST", body: JSON.stringify(data) }),
+  updateOrderPayment: (id, paymentId, data) =>
+    request(`/orders/${id}/payments/${paymentId}`, { method: "PUT", body: JSON.stringify(data) }),
+  deleteOrderPayment: (id, paymentId) => request(`/orders/${id}/payments/${paymentId}`, { method: "DELETE" }),
 
   getClients: () => request("/clients"),
   getClient: (id) => request(`/clients/${id}`),
