@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
-import { STATUS_PIPELINE, PAYMENT_STATUSES, PAYMENT_METHODS, EVENT_TYPES, formatDate, formatMoney } from "../statuses";
+import { STATUS_PIPELINE, PAYMENT_METHODS, EVENT_TYPES, formatDate, formatMoney } from "../statuses";
 import { useBodyScrollLock } from "../useBodyScrollLock";
 import PaymentModal from "./PaymentModal.jsx";
 
@@ -115,14 +115,6 @@ export default function OrderFormModal({ clients, order, initialCalculation, onC
 
   function update(field, value) {
     setForm((f) => ({ ...f, [field]: value }));
-  }
-
-  function handleStatusSelect(value) {
-    if (isEdit && value !== form.status && PAYMENT_STATUSES[value]) {
-      setPaymentModal({});
-      return;
-    }
-    update("status", value);
   }
 
   const num = (v) => Number(v) || 0;
@@ -311,7 +303,7 @@ export default function OrderFormModal({ clients, order, initialCalculation, onC
             </div>
             <div className="field">
               <label>Статус</label>
-              <select className="input" value={form.status} onChange={(e) => handleStatusSelect(e.target.value)}>
+              <select className="input" value={form.status} onChange={(e) => update("status", e.target.value)}>
                 {STATUS_PIPELINE.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
               </select>
             </div>

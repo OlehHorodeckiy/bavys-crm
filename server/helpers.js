@@ -6,11 +6,6 @@ const STATUS_PIPELINE = [
   { value: "cancelled", label: "Скасовано" },
 ];
 
-// Statuses that represent "money was just collected" — changing an order
-// to one of these must go through POST /orders/:id/payments, never a plain
-// status edit, so a payment record always exists to back it up.
-const PAYMENT_STATUSES = { advance_paid: "advance", paid: "final" };
-
 const PAYMENT_METHODS = [
   { value: "card", label: "Картка" },
   { value: "cash", label: "Готівка" },
@@ -23,23 +18,6 @@ function withOrderTotals(order) {
   const collected = order.collected_amount || 0;
   const remainingBalance = Math.max(totalAmount - collected, 0);
   return { ...order, total_amount: totalAmount, collected_amount: collected, remaining_balance: remainingBalance };
-}
-
-// Statuses whose position is derived from money collected, not chosen by
-// hand — "Подія проведена" and "Скасовано" fall outside this and are never
-// touched by a payment add/edit/delete.
-const FORWARD_STATUSES = ["waiting_advance", "advance_paid", "paid"];
-
-// The single source of truth for what a payment does to an order's status:
-// full amount in → paid, partial → advance_paid, nothing collected →
-// waiting_advance. Never depends on which action (create/edit/delete)
-// triggered the recalculation, so the same payment total always yields the
-// same status — that's what makes "one real payment = one credit" hold.
-function deriveStatusFromCollected(currentStatus, collected, totalAmount) {
-  if (!FORWARD_STATUSES.includes(currentStatus)) return currentStatus;
-  if (collected <= 0) return "waiting_advance";
-  if (collected >= totalAmount) return "paid";
-  return "advance_paid";
 }
 
 const TRANSACTION_TYPES = [
@@ -63,11 +41,8 @@ const EXPENSE_CATEGORIES = [
 
 module.exports = {
   STATUS_PIPELINE,
-  PAYMENT_STATUSES,
   PAYMENT_METHODS,
   withOrderTotals,
-  FORWARD_STATUSES,
-  deriveStatusFromCollected,
   TRANSACTION_TYPES,
   EXPENSE_CATEGORIES,
 };

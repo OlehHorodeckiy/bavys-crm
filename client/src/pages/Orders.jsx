@@ -5,14 +5,12 @@ import { useLiveData } from "../useLiveData";
 import { Loading, ErrorBanner } from "../components/LoadError.jsx";
 import StatusBadge from "../components/StatusBadge.jsx";
 import OrderFormModal from "../components/OrderFormModal.jsx";
-import PaymentModal from "../components/PaymentModal.jsx";
-import { formatDate, formatMoney, STATUS_PIPELINE, PAYMENT_STATUSES } from "../statuses";
+import { formatDate, formatMoney, STATUS_PIPELINE } from "../statuses";
 
 export default function Orders() {
   const orders = useLiveData(api.getOrders);
   const clients = useLiveData(api.getClients);
   const [modalOrder, setModalOrder] = useState(undefined);
-  const [paymentRequest, setPaymentRequest] = useState(null);
   const [filter, setFilter] = useState("all");
 
   if (orders.loading || clients.loading) return <Loading />;
@@ -21,12 +19,9 @@ export default function Orders() {
   const filtered =
     filter === "all" ? orders.data : orders.data.filter((o) => o.status === filter);
 
+  // Status is a purely organizational field — this never touches money.
   async function handleStatusChange(order, status) {
     if (status === order.status) return;
-    if (PAYMENT_STATUSES[status]) {
-      setPaymentRequest(order);
-      return;
-    }
     await api.updateOrder(order.id, { status });
     orders.reload();
   }
@@ -119,15 +114,6 @@ export default function Orders() {
           onClose={() => setModalOrder(undefined)}
           onSaved={() => { orders.reload(); clients.reload(); }}
           onDeleted={() => orders.reload()}
-        />
-      )}
-
-      {paymentRequest && (
-        <PaymentModal
-          order={paymentRequest}
-          onClose={() => setPaymentRequest(null)}
-          onSaved={() => { setPaymentRequest(null); orders.reload(); }}
-          onDeleted={() => { setPaymentRequest(null); orders.reload(); }}
         />
       )}
     </div>

@@ -8,10 +8,6 @@ export const STATUS_PIPELINE = [
 
 export const STATUS_MAP = Object.fromEntries(STATUS_PIPELINE.map((s) => [s.value, s]));
 
-// Statuses that must go through a payment (never a plain status edit) —
-// mirrors server/helpers.js PAYMENT_STATUSES.
-export const PAYMENT_STATUSES = { advance_paid: "advance", paid: "final" };
-
 export const PAYMENT_METHODS = [
   { value: "card", label: "Картка" },
   { value: "cash", label: "Готівка" },

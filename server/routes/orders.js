@@ -1,12 +1,6 @@
 const express = require("express");
 const db = require("../db");
-const {
-  withOrderTotals,
-  STATUS_PIPELINE,
-  PAYMENT_STATUSES,
-  PAYMENT_METHODS,
-  deriveStatusFromCollected,
-} = require("../helpers");
+const { withOrderTotals, STATUS_PIPELINE, PAYMENT_METHODS } = require("../helpers");
 const { loadCalculation, getLineItems, replaceLineItems } = require("./calculations");
 
 const ORDER_FIELDS = [
@@ -137,10 +131,10 @@ module.exports = function ordersRouter(emitChange) {
       if (!body.client_id) return res.status(400).json({ error: "client_id обов'язковий" });
 
       // An advance can be recorded in the same request that creates the
-      // order — capped at the order's own total so it can never overshoot,
-      // and only auto-promotes the status when the caller left it at the
-      // default ("waiting_advance"); an explicit status (e.g. backfilling a
-      // "Подія проведена" record) is always respected as-is.
+      // order — capped at the order's own total so it can never overshoot.
+      // It only credits the balance; the status is whatever the caller
+      // chose (or the default) and is never inferred from this payment —
+      // status and money stay fully independent, same as everywhere else.
       const totalAmount =
         (Number(body.games_cost) || 0) +
         (Number(body.tables_cost) || 0) +
@@ -148,9 +142,6 @@ module.exports = function ordersRouter(emitChange) {
         (Number(body.logistics_cost) || 0);
       const advanceAmount = Math.min(Math.max(Number(body.advance_amount) || 0, 0), totalAmount);
       const advanceMethod = ["card", "cash"].includes(body.payment_method) ? body.payment_method : "cash";
-      if (advanceAmount > 0 && (!body.status || body.status === "waiting_advance")) {
-        body.status = advanceAmount >= totalAmount ? "paid" : "advance_paid";
-      }
 
       const values = ORDER_FIELDS.map((f) => body[f] ?? FIELD_DEFAULTS[f] ?? null);
       const placeholders = ORDER_FIELDS.map((_, i) => `$${i + 1}`).join(", ");
@@ -190,12 +181,6 @@ module.exports = function ordersRouter(emitChange) {
       if (!existing) return res.status(404).json({ error: "Замовлення не знайдено" });
 
       const body = req.body;
-      if (body.status && body.status !== existing.status && PAYMENT_STATUSES[body.status]) {
-        return res.status(400).json({
-          error: "Цей статус встановлюється лише через внесення оплати (POST /orders/:id/payments)",
-        });
-      }
-
       const merged = { ...existing, ...body };
       const values = ORDER_FIELDS.map((f) => merged[f] ?? null);
       const setClause = ORDER_FIELDS.map((f, i) => `${f} = $${i + 1}`).join(", ");
@@ -231,19 +216,9 @@ module.exports = function ordersRouter(emitChange) {
     return { totalAmount, collected: rows[0].collected };
   }
 
-  async function applyDerivedStatus(order, newCollected, totalAmount) {
-    const newStatus = deriveStatusFromCollected(order.status, newCollected, totalAmount);
-    if (newStatus !== order.status) {
-      await db.query("UPDATE orders SET status = $1, updated_at = NOW() WHERE id = $2", [newStatus, order.id]);
-    }
-    const { rows } = await db.query("SELECT * FROM orders WHERE id = $1", [order.id]);
-    return withOrderTotals({ ...rows[0], collected_amount: newCollected });
-  }
-
-  // The only way an order can move to "Оплачений аванс" or "Оплачено" —
-  // records a standalone payment (never overwrites an earlier one) and lets
-  // the resulting status fall out of the total collected, so it can never
-  // exceed the order's total and never double-counts an existing payment.
+  // Payments only ever change collected_amount/balance — never the order's
+  // status. Status is a purely organizational field the user moves by hand
+  // (see PUT /:id and the kanban); the two are intentionally decoupled.
   router.post("/:id/payments", async (req, res, next) => {
     try {
       const { rows: existingRows } = await db.query("SELECT * FROM orders WHERE id = $1", [req.params.id]);
@@ -270,7 +245,7 @@ module.exports = function ordersRouter(emitChange) {
       const methodLabel = PAYMENT_METHODS.find((m) => m.value === method)?.label || method;
       await logInteraction(existing.client_id, existing.id, "status_change", `Платіж отримано: ${amountNum} грн (${methodLabel})`);
 
-      const full = await applyDerivedStatus(existing, collected + amountNum, totalAmount);
+      const full = withOrderTotals({ ...existing, collected_amount: collected + amountNum });
       emitChange("order:updated", full);
       res.status(201).json(full);
     } catch (err) {
@@ -279,7 +254,8 @@ module.exports = function ordersRouter(emitChange) {
   });
 
   // Edit an existing payment's amount/method — the order's collected total,
-  // remaining balance, status and card/cash split all recompute from this.
+  // remaining balance and card/cash split all recompute from this. Status
+  // is untouched, same as every other payment mutation.
   router.put("/:id/payments/:paymentId", async (req, res, next) => {
     try {
       const { rows: existingRows } = await db.query("SELECT * FROM orders WHERE id = $1", [req.params.id]);
@@ -307,7 +283,7 @@ module.exports = function ordersRouter(emitChange) {
 
       await db.query("UPDATE payments SET amount = $1, method = $2 WHERE id = $3", [amountNum, method, payment.id]);
 
-      const full = await applyDerivedStatus(existing, collectedExcluding + amountNum, totalAmount);
+      const full = withOrderTotals({ ...existing, collected_amount: collectedExcluding + amountNum });
       emitChange("order:updated", full);
       res.json(full);
     } catch (err) {
@@ -315,8 +291,8 @@ module.exports = function ordersRouter(emitChange) {
     }
   });
 
-  // Delete a payment — money it represented is removed from the balance and
-  // the status recomputes from what's left (never touches completed/cancelled).
+  // Delete a payment — money it represented is removed from the balance.
+  // Status is untouched, same as every other payment mutation.
   router.delete("/:id/payments/:paymentId", async (req, res, next) => {
     try {
       const { rows: existingRows } = await db.query("SELECT * FROM orders WHERE id = $1", [req.params.id]);
@@ -332,8 +308,8 @@ module.exports = function ordersRouter(emitChange) {
 
       await db.query("DELETE FROM payments WHERE id = $1", [payment.id]);
 
-      const { totalAmount, collected } = await currentTotals(existing);
-      const full = await applyDerivedStatus(existing, collected, totalAmount);
+      const { collected } = await currentTotals(existing);
+      const full = withOrderTotals({ ...existing, collected_amount: collected });
       emitChange("order:updated", full);
       res.json(full);
     } catch (err) {
