@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { api } from "../api";
 import { TRANSACTION_TYPES, EXPENSE_CATEGORIES } from "../pl";
+import { PAYMENT_METHODS } from "../statuses";
 import { useBodyScrollLock } from "../useBodyScrollLock";
 
 function today() {
@@ -28,7 +29,7 @@ function emptyForm(tx, initialType) {
     type: initialType || "expense",
     flow: initialType === "capital" ? "in" : "out",
     amount: "",
-    payment_method: "",
+    payment_method: "cash",
     comment: "",
     affects_pl: initialType !== "capital",
   };
@@ -147,8 +148,8 @@ export default function TransactionFormModal({ transaction, initialType, onClose
             />
           </div>
 
-          {form.type !== "capital" && (
-            <div className="form-row">
+          <div className="form-row">
+            {form.type !== "capital" && (
               <div className="field">
                 <label>Категорія</label>
                 <select className="input" value={form.category} onChange={(e) => update("category", e.target.value)}>
@@ -156,12 +157,15 @@ export default function TransactionFormModal({ transaction, initialType, onClose
                   {EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
-              <div className="field">
-                <label>Спосіб оплати</label>
-                <input className="input" placeholder="Готівка, карта…" value={form.payment_method} onChange={(e) => update("payment_method", e.target.value)} />
-              </div>
+            )}
+            <div className="field">
+              <label>Спосіб оплати</label>
+              <select className="input" value={form.payment_method} onChange={(e) => update("payment_method", e.target.value)}>
+                <option value="">Не вказано</option>
+                {PAYMENT_METHODS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+              </select>
             </div>
-          )}
+          </div>
 
           {form.type === "other" && (
             <div className="field">

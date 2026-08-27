@@ -29,7 +29,13 @@ module.exports = function clientsRouter(emitChange) {
       if (!client) return res.status(404).json({ error: "Клієнта не знайдено" });
 
       const { rows: orderRows } = await db.query(
-        "SELECT * FROM orders WHERE client_id = $1 ORDER BY event_date DESC",
+        `SELECT o.*, COALESCE(pay.collected_amount, 0)::int AS collected_amount
+         FROM orders o
+         LEFT JOIN (
+           SELECT order_id, COALESCE(SUM(amount), 0)::int AS collected_amount
+           FROM payments GROUP BY order_id
+         ) pay ON pay.order_id = o.id
+         WHERE o.client_id = $1 ORDER BY o.event_date DESC`,
         [req.params.id]
       );
       const { rows: interactions } = await db.query(

@@ -2,9 +2,6 @@ const express = require("express");
 const db = require("../db");
 
 const ORDER_REVENUE = "(o.games_cost + o.tables_cost + o.escort_cost + o.logistics_cost)";
-// Money actually collected for an order: the full total once it's marked
-// "Оплачено", otherwise whatever advance/partial payment is on record.
-const ORDER_COLLECTED = `(CASE WHEN o.status = 'paid' THEN ${ORDER_REVENUE} ELSE o.advance_amount END)`;
 
 function dateFilter(column, from, to, params) {
   const parts = [];
@@ -20,14 +17,20 @@ module.exports = function plRouter() {
     try {
       const { from, to } = req.query;
 
-      // Accrual revenue: full value of every order whose event falls in the period.
+      // Accrual revenue: full value of every order whose event falls in the
+      // period. "Outstanding" is what's left once real payments are counted.
       const orderParams = [];
       const orderConds = ["o.status != 'cancelled'", ...dateFilter("o.event_date", from, to, orderParams)];
       const { rows: orderRevRows } = await db.query(
         `SELECT COALESCE(SUM(${ORDER_REVENUE}), 0)::int AS revenue,
-                COALESCE(SUM(GREATEST(${ORDER_REVENUE} - ${ORDER_COLLECTED}, 0)), 0)::int AS outstanding,
+                COALESCE(SUM(GREATEST(${ORDER_REVENUE} - COALESCE(pay.collected_amount, 0), 0)), 0)::int AS outstanding,
                 COUNT(*)::int AS orders_count
-         FROM orders o WHERE ${orderConds.join(" AND ")}`,
+         FROM orders o
+         LEFT JOIN (
+           SELECT order_id, COALESCE(SUM(amount), 0)::int AS collected_amount
+           FROM payments GROUP BY order_id
+         ) pay ON pay.order_id = o.id
+         WHERE ${orderConds.join(" AND ")}`,
         orderParams
       );
 
@@ -50,23 +53,37 @@ module.exports = function plRouter() {
         capitalParams
       );
 
-      // Balance is a point-in-time snapshot, not scoped to the period:
-      // all cash actually collected from orders + all manual cash movements.
-      const { rows: balanceOrderRows } = await db.query(
-        `SELECT COALESCE(SUM(${ORDER_COLLECTED}), 0)::int AS collected FROM orders o WHERE o.status != 'cancelled'`
-      );
+      // Balance is a point-in-time snapshot, not scoped to the period: every
+      // real payment ever received + every manual cash movement (expenses
+      // out, capital/income in, etc). Never derived from order status alone.
+      const { rows: paymentRows } = await db.query(`SELECT COALESCE(SUM(amount), 0)::int AS total FROM payments`);
       const { rows: balanceTxRows } = await db.query(
         `SELECT COALESCE(SUM(CASE WHEN flow = 'in' THEN amount ELSE -amount END), 0)::int AS net FROM transactions`
       );
 
+      // Card / cash split of that same balance.
+      const { rows: paymentByMethod } = await db.query(
+        `SELECT method, COALESCE(SUM(amount), 0)::int AS total FROM payments GROUP BY method`
+      );
+      const { rows: txByMethod } = await db.query(
+        `SELECT payment_method AS method, COALESCE(SUM(CASE WHEN flow = 'in' THEN amount ELSE -amount END), 0)::int AS net
+         FROM transactions WHERE payment_method IN ('card', 'cash') GROUP BY payment_method`
+      );
+      const byMethod = { card: 0, cash: 0 };
+      for (const r of paymentByMethod) if (r.method in byMethod) byMethod[r.method] += r.total;
+      for (const r of txByMethod) if (r.method in byMethod) byMethod[r.method] += r.net;
+
       const revenue = orderRevRows[0].revenue + txRows[0].income;
       const expenses = txRows[0].expenses;
+      const balance = paymentRows[0].total + balanceTxRows[0].net;
 
       res.json({
         revenue,
         expenses,
         net_profit: revenue - expenses,
-        balance: balanceOrderRows[0].collected + balanceTxRows[0].net,
+        balance,
+        balance_card: byMethod.card,
+        balance_cash: byMethod.cash,
         capital_contributed: capitalRows[0].contributed,
         outstanding: orderRevRows[0].outstanding,
         orders_count: orderRevRows[0].orders_count,

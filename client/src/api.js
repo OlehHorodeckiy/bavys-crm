@@ -24,6 +24,8 @@ export const api = {
   createOrder: (data) => request("/orders", { method: "POST", body: JSON.stringify(data) }),
   updateOrder: (id, data) => request(`/orders/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   deleteOrder: (id) => request(`/orders/${id}`, { method: "DELETE" }),
+  getOrderPayments: (id) => request(`/orders/${id}/payments`),
+  addOrderPayment: (id, data) => request(`/orders/${id}/payments`, { method: "POST", body: JSON.stringify(data) }),
 
   getClients: () => request("/clients"),
   getClient: (id) => request(`/clients/${id}`),

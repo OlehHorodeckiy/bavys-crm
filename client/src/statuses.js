@@ -1,11 +1,21 @@
 export const STATUS_PIPELINE = [
   { value: "waiting_advance", label: "Чекаємо аванс", color: "#E8A55A" },
+  { value: "advance_paid", label: "Оплачений аванс", color: "#5B9BD5" },
   { value: "paid", label: "Оплачено", color: "#5DB872" },
   { value: "completed", label: "Подія проведена", color: "#CC785C" },
   { value: "cancelled", label: "Скасовано", color: "#C64545" },
 ];
 
 export const STATUS_MAP = Object.fromEntries(STATUS_PIPELINE.map((s) => [s.value, s]));
+
+// Statuses that must go through a payment (never a plain status edit) —
+// mirrors server/helpers.js PAYMENT_STATUSES.
+export const PAYMENT_STATUSES = { advance_paid: "advance", paid: "final" };
+
+export const PAYMENT_METHODS = [
+  { value: "card", label: "Картка" },
+  { value: "cash", label: "Готівка" },
+];
 
 export const EVENT_TYPES = ["Дитяче свято", "Весілля", "Корпоратив", "День народження", "Фестиваль"];
 

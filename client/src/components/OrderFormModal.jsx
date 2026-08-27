@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
-import { STATUS_PIPELINE, EVENT_TYPES, formatMoney } from "../statuses";
+import { STATUS_PIPELINE, PAYMENT_STATUSES, EVENT_TYPES, formatMoney } from "../statuses";
 import { useBodyScrollLock } from "../useBodyScrollLock";
+import PaymentModal from "./PaymentModal.jsx";
+
+// Statuses assignable directly from this form — "Оплачений аванс"/"Оплачено"
+// can only be reached by recording a real payment (see the buttons below).
+const DIRECT_STATUSES = STATUS_PIPELINE.filter((s) => !PAYMENT_STATUSES[s.value]);
 
 function emptyForm(order) {
   if (order) {
@@ -14,7 +19,6 @@ function emptyForm(order) {
       tables_cost: order.tables_cost,
       escort_cost: order.escort_cost,
       logistics_cost: order.logistics_cost,
-      advance_amount: order.advance_amount,
       comment: order.comment || "",
     };
   }
@@ -27,7 +31,6 @@ function emptyForm(order) {
     tables_cost: "",
     escort_cost: "",
     logistics_cost: "",
-    advance_amount: "",
     comment: "",
   };
 }
@@ -60,6 +63,7 @@ export default function OrderFormModal({ clients, order, initialCalculation, onC
   const [calculationId, setCalculationId] = useState(initialCalculation?.id || null);
   const [appliedCalc, setAppliedCalc] = useState(initialCalculation || null);
   const [activeCalcs, setActiveCalcs] = useState([]);
+  const [paymentKind, setPaymentKind] = useState(null);
   useBodyScrollLock();
 
   useEffect(() => {
@@ -93,7 +97,8 @@ export default function OrderFormModal({ clients, order, initialCalculation, onC
 
   const num = (v) => Number(v) || 0;
   const totalAmount = num(form.games_cost) + num(form.tables_cost) + num(form.escort_cost) + num(form.logistics_cost);
-  const remaining = Math.max(totalAmount - num(form.advance_amount), 0);
+  const collectedAmount = isEdit ? order.collected_amount || 0 : 0;
+  const remaining = Math.max(totalAmount - collectedAmount, 0);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -118,7 +123,6 @@ export default function OrderFormModal({ clients, order, initialCalculation, onC
         tables_cost: num(form.tables_cost),
         escort_cost: num(form.escort_cost),
         logistics_cost: num(form.logistics_cost),
-        advance_amount: num(form.advance_amount),
         comment: form.comment,
         calculation_id: calculationId || undefined,
       };
@@ -270,10 +274,28 @@ export default function OrderFormModal({ clients, order, initialCalculation, onC
             <div className="field">
               <label>Статус</label>
               <select className="input" value={form.status} onChange={(e) => update("status", e.target.value)}>
-                {STATUS_PIPELINE.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+                {!DIRECT_STATUSES.some((s) => s.value === form.status) && (
+                  <option value={form.status} disabled>
+                    {STATUS_PIPELINE.find((s) => s.value === form.status)?.label}
+                  </option>
+                )}
+                {DIRECT_STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
               </select>
             </div>
           </div>
+
+          {isEdit && (form.status === "waiting_advance" || form.status === "advance_paid") && (
+            <div className="field">
+              <label>Оплата</label>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => setPaymentKind(form.status === "waiting_advance" ? "advance" : "final")}
+              >
+                {form.status === "waiting_advance" ? "Внести аванс" : "Внести доплату"}
+              </button>
+            </div>
+          )}
 
           <div className="form-row">
             <div className="field">
@@ -297,13 +319,9 @@ export default function OrderFormModal({ clients, order, initialCalculation, onC
             </div>
           </div>
 
-          <div className="field">
-            <label>Аванс, грн</label>
-            <input type="number" min="0" className="input" value={form.advance_amount} onChange={(e) => update("advance_amount", e.target.value)} />
-          </div>
-
           <div className="totals-box">
             <div><span>Загальна сума</span><strong>{formatMoney(totalAmount)}</strong></div>
+            {isEdit && <div><span>Отримано</span><strong>{formatMoney(collectedAmount)}</strong></div>}
             <div><span>До оплати</span><strong>{formatMoney(remaining)}</strong></div>
           </div>
 
@@ -329,6 +347,18 @@ export default function OrderFormModal({ clients, order, initialCalculation, onC
           </div>
         </form>
       </div>
+
+      {paymentKind && (
+        <PaymentModal
+          order={{ ...order, total_amount: totalAmount, collected_amount: collectedAmount, remaining_balance: remaining }}
+          kind={paymentKind}
+          onClose={() => setPaymentKind(null)}
+          onSaved={() => {
+            onSaved?.();
+            onClose();
+          }}
+        />
+      )}
     </div>
   );
 }

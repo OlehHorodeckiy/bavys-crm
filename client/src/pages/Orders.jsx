@@ -5,12 +5,14 @@ import { useLiveData } from "../useLiveData";
 import { Loading, ErrorBanner } from "../components/LoadError.jsx";
 import StatusBadge from "../components/StatusBadge.jsx";
 import OrderFormModal from "../components/OrderFormModal.jsx";
-import { formatDate, formatMoney, STATUS_PIPELINE } from "../statuses";
+import PaymentModal from "../components/PaymentModal.jsx";
+import { formatDate, formatMoney, STATUS_PIPELINE, PAYMENT_STATUSES } from "../statuses";
 
 export default function Orders() {
   const orders = useLiveData(api.getOrders);
   const clients = useLiveData(api.getClients);
   const [modalOrder, setModalOrder] = useState(undefined);
+  const [paymentRequest, setPaymentRequest] = useState(null);
   const [filter, setFilter] = useState("all");
 
   if (orders.loading || clients.loading) return <Loading />;
@@ -20,6 +22,12 @@ export default function Orders() {
     filter === "all" ? orders.data : orders.data.filter((o) => o.status === filter);
 
   async function handleStatusChange(order, status) {
+    if (status === order.status) return;
+    const paymentKind = PAYMENT_STATUSES[status];
+    if (paymentKind) {
+      setPaymentRequest({ order, kind: paymentKind });
+      return;
+    }
     await api.updateOrder(order.id, { status });
     orders.reload();
   }
@@ -64,7 +72,7 @@ export default function Orders() {
                 <th>Дата події</th>
                 <th>Локація</th>
                 <th>Загальна сума</th>
-                <th>Аванс</th>
+                <th>Отримано</th>
                 <th>До оплати</th>
                 <th>Статус</th>
                 <th></th>
@@ -82,7 +90,7 @@ export default function Orders() {
                   <td>{formatDate(o.event_date)}</td>
                   <td>{o.venue || "—"}</td>
                   <td style={{ fontWeight: 600 }}>{formatMoney(o.total_amount)}</td>
-                  <td>{formatMoney(o.advance_amount)}</td>
+                  <td>{formatMoney(o.collected_amount)}</td>
                   <td style={{ fontWeight: 600, color: o.remaining_balance > 0 ? "var(--primary)" : "var(--success, #5db872)" }}>
                     {formatMoney(o.remaining_balance)}
                   </td>
@@ -112,6 +120,15 @@ export default function Orders() {
           onClose={() => setModalOrder(undefined)}
           onSaved={() => { orders.reload(); clients.reload(); }}
           onDeleted={() => orders.reload()}
+        />
+      )}
+
+      {paymentRequest && (
+        <PaymentModal
+          order={paymentRequest.order}
+          kind={paymentRequest.kind}
+          onClose={() => setPaymentRequest(null)}
+          onSaved={() => orders.reload()}
         />
       )}
     </div>

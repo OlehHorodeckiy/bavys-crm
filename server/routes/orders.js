@@ -1,6 +1,6 @@
 const express = require("express");
 const db = require("../db");
-const { withOrderTotals, STATUS_PIPELINE } = require("../helpers");
+const { withOrderTotals, STATUS_PIPELINE, PAYMENT_STATUSES, PAYMENT_METHODS } = require("../helpers");
 const { loadCalculation, getLineItems, replaceLineItems } = require("./calculations");
 
 const ORDER_FIELDS = [
@@ -14,7 +14,6 @@ const ORDER_FIELDS = [
   "tables_cost",
   "escort_cost",
   "logistics_cost",
-  "advance_amount",
   "comment",
   "assigned_staff_id",
   "tables_count",
@@ -30,8 +29,14 @@ const FIELD_DEFAULTS = {
   tables_cost: 0,
   escort_cost: 0,
   logistics_cost: 0,
-  advance_amount: 0,
 };
+
+// Every SELECT that needs remaining_balance/collected_amount joins this so
+// "money in" always comes from the payments ledger, never a stale column.
+const COLLECTED_JOIN = `LEFT JOIN (
+  SELECT order_id, COALESCE(SUM(amount), 0)::int AS collected_amount
+  FROM payments GROUP BY order_id
+) pay ON pay.order_id = o.id`;
 
 async function logInteraction(clientId, orderId, type, text) {
   await db.query(
@@ -54,10 +59,12 @@ module.exports = function ordersRouter(emitChange) {
   router.get("/", async (req, res, next) => {
     try {
       const { rows } = await db.query(`
-        SELECT o.*, c.name AS client_name, c.phone AS client_phone, s.name AS staff_name
+        SELECT o.*, c.name AS client_name, c.phone AS client_phone, s.name AS staff_name,
+               COALESCE(pay.collected_amount, 0)::int AS collected_amount
          FROM orders o
          JOIN clients c ON c.id = o.client_id
          LEFT JOIN staff s ON s.id = o.assigned_staff_id
+         ${COLLECTED_JOIN}
          ${ORDER_BY_EVENT_DATE}
       `);
       res.json(rows.map(withOrderTotals));
@@ -67,11 +74,38 @@ module.exports = function ordersRouter(emitChange) {
   });
 
   router.get("/statuses", (req, res) => res.json(STATUS_PIPELINE));
+  router.get("/payment-methods", (req, res) => res.json(PAYMENT_METHODS));
+
+  router.get("/:id", async (req, res, next) => {
+    try {
+      const { rows } = await db.query(
+        `SELECT o.*, c.name AS client_name, c.phone AS client_phone,
+                COALESCE(pay.collected_amount, 0)::int AS collected_amount
+         FROM orders o JOIN clients c ON c.id = o.client_id
+         ${COLLECTED_JOIN}
+         WHERE o.id = $1`,
+        [req.params.id]
+      );
+      if (!rows[0]) return res.status(404).json({ error: "Замовлення не знайдено" });
+      res.json(withOrderTotals(rows[0]));
+    } catch (err) {
+      next(err);
+    }
+  });
 
   router.get("/:id/items", async (req, res, next) => {
     try {
       const items = await getLineItems("order", req.params.id);
       res.json(items);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.get("/:id/payments", async (req, res, next) => {
+    try {
+      const { rows } = await db.query("SELECT * FROM payments WHERE order_id = $1 ORDER BY created_at", [req.params.id]);
+      res.json(rows);
     } catch (err) {
       next(err);
     }
@@ -112,8 +146,9 @@ module.exports = function ordersRouter(emitChange) {
 
       await logInteraction(body.client_id, order.id, "status_change", "Замовлення створено");
 
-      emitChange("order:created", withOrderTotals(order));
-      res.status(201).json(withOrderTotals(order));
+      const full = withOrderTotals({ ...order, collected_amount: 0 });
+      emitChange("order:created", full);
+      res.status(201).json(full);
     } catch (err) {
       next(err);
     }
@@ -126,6 +161,12 @@ module.exports = function ordersRouter(emitChange) {
       if (!existing) return res.status(404).json({ error: "Замовлення не знайдено" });
 
       const body = req.body;
+      if (body.status && body.status !== existing.status && PAYMENT_STATUSES[body.status]) {
+        return res.status(400).json({
+          error: "Цей статус встановлюється лише через внесення оплати (POST /orders/:id/payments)",
+        });
+      }
+
       const merged = { ...existing, ...body };
       const values = ORDER_FIELDS.map((f) => merged[f] ?? null);
       const setClause = ORDER_FIELDS.map((f, i) => `${f} = $${i + 1}`).join(", ");
@@ -140,8 +181,57 @@ module.exports = function ordersRouter(emitChange) {
         await logInteraction(existing.client_id, existing.id, "status_change", `Статус змінено на «${label}»`);
       }
 
-      emitChange("order:updated", withOrderTotals(order));
-      res.json(withOrderTotals(order));
+      const { rows: collectedRows } = await db.query(
+        "SELECT COALESCE(SUM(amount),0)::int AS collected_amount FROM payments WHERE order_id = $1",
+        [req.params.id]
+      );
+      const full = withOrderTotals({ ...order, collected_amount: collectedRows[0].collected_amount });
+      emitChange("order:updated", full);
+      res.json(full);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // The only way an order can move to "Оплачений аванс" or "Оплачено" —
+  // records a standalone payment (advance and final payments never overwrite
+  // each other) and flips the status in the same request.
+  router.post("/:id/payments", async (req, res, next) => {
+    try {
+      const { rows: existingRows } = await db.query("SELECT * FROM orders WHERE id = $1", [req.params.id]);
+      const existing = existingRows[0];
+      if (!existing) return res.status(404).json({ error: "Замовлення не знайдено" });
+
+      const { amount, method, kind } = req.body;
+      const amountNum = Math.abs(Number(amount)) || 0;
+      if (amountNum <= 0) return res.status(400).json({ error: "Сума платежу обов'язкова" });
+      if (!["card", "cash"].includes(method)) return res.status(400).json({ error: "Спосіб оплати: card або cash" });
+      const paymentKind = kind === "final" ? "final" : "advance";
+      const newStatus = paymentKind === "final" ? "paid" : "advance_paid";
+
+      await db.query(
+        "INSERT INTO payments (order_id, amount, method, kind, date) VALUES ($1,$2,$3,$4, CURRENT_DATE::text)",
+        [existing.id, amountNum, method, paymentKind]
+      );
+      await db.query("UPDATE orders SET status = $1, updated_at = NOW() WHERE id = $2", [newStatus, existing.id]);
+
+      const methodLabel = PAYMENT_METHODS.find((m) => m.value === method)?.label || method;
+      const kindLabel = paymentKind === "final" ? "Доплату" : "Аванс";
+      await logInteraction(
+        existing.client_id,
+        existing.id,
+        "status_change",
+        `${kindLabel} отримано: ${amountNum} грн (${methodLabel})`
+      );
+
+      const { rows: orderRows } = await db.query("SELECT * FROM orders WHERE id = $1", [existing.id]);
+      const { rows: collectedRows } = await db.query(
+        "SELECT COALESCE(SUM(amount),0)::int AS collected_amount FROM payments WHERE order_id = $1",
+        [existing.id]
+      );
+      const full = withOrderTotals({ ...orderRows[0], collected_amount: collectedRows[0].collected_amount });
+      emitChange("order:updated", full);
+      res.status(201).json(full);
     } catch (err) {
       next(err);
     }
@@ -159,6 +249,7 @@ module.exports = function ordersRouter(emitChange) {
         [req.params.id]
       );
       await db.query("DELETE FROM line_items WHERE owner_type = 'order' AND owner_id = $1", [req.params.id]);
+      // payments cascade automatically (ON DELETE CASCADE)
       await db.query("DELETE FROM orders WHERE id = $1", [req.params.id]);
 
       emitChange("order:deleted", { id: Number(req.params.id) });

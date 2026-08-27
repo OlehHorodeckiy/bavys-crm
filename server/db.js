@@ -59,6 +59,32 @@ async function migrateOrdersTable() {
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS calculation_id INTEGER`);
 }
 
+// One-time backfill: turns the old single advance_amount number into a real
+// payment record, so orders created before the payments ledger existed still
+// count correctly toward the balance and the card/cash split. No-op once run
+// (skips any order that already has a payment row).
+async function backfillPayments() {
+  const { rows: candidates } = await pool.query(`
+    SELECT o.id, o.status, o.advance_amount,
+           (o.games_cost + o.tables_cost + o.escort_cost + o.logistics_cost) AS total_amount
+    FROM orders o
+    LEFT JOIN payments p ON p.order_id = o.id
+    WHERE p.id IS NULL AND (o.advance_amount > 0 OR o.status IN ('paid', 'completed'))
+    GROUP BY o.id
+  `);
+  for (const o of candidates) {
+    const fullyPaid = o.status === "paid" || o.status === "completed";
+    const amount = fullyPaid ? o.total_amount : o.advance_amount;
+    if (amount <= 0) continue;
+    const kind = fullyPaid ? "final" : "advance";
+    await pool.query(
+      `INSERT INTO payments (order_id, amount, method, kind, date)
+       VALUES ($1, $2, 'cash', $3, CURRENT_DATE::text)`,
+      [o.id, amount, kind]
+    );
+  }
+}
+
 async function init() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS clients (
@@ -139,6 +165,19 @@ async function init() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
+    -- Every real payment received against an order, kept as its own
+    -- append-only row (advance and final payments never overwrite each
+    -- other) — this is the single source of truth for money collected.
+    CREATE TABLE IF NOT EXISTS payments (
+      id SERIAL PRIMARY KEY,
+      order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+      amount INTEGER NOT NULL,
+      method TEXT NOT NULL DEFAULT 'cash',
+      kind TEXT NOT NULL DEFAULT 'advance',
+      date TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
     -- Individual games selected on a calculation or carried onto an order,
     -- kept as separate rows (not folded into one total) so popularity and
     -- per-game revenue can be reported later without re-deriving it.
@@ -154,6 +193,7 @@ async function init() {
   `);
 
   await migrateOrdersTable();
+  await backfillPayments();
 }
 
 module.exports = {

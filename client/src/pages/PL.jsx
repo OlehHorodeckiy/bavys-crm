@@ -104,7 +104,14 @@ export default function PL() {
       )}
 
       <div className="grid grid-kpi grid-kpi-3" style={{ marginBottom: 18 }}>
-        <StatCard icon={<IconLayers size={18} />} iconColor="var(--body)" iconBg="#e8e0d2" label="Поточний баланс" value={formatMoney(s.balance)} />
+        <StatCard
+          icon={<IconLayers size={18} />}
+          iconColor="var(--body)"
+          iconBg="#e8e0d2"
+          label="Поточний баланс"
+          value={formatMoney(s.balance)}
+          sub={`Картка — ${formatMoney(s.balance_card)} · Готівка — ${formatMoney(s.balance_cash)}`}
+        />
         <StatCard icon={<IconCoins size={18} />} iconColor="var(--success, #5db872)" iconBg="#dcefe9" label="Дохід" value={formatMoney(s.revenue)} />
         <StatCard icon={<IconGift size={18} />} iconColor="var(--error)" iconBg="#f5dcdc" label="Витрати" value={formatMoney(s.expenses)} />
         <StatCard icon={<IconTrend size={18} />} iconColor="var(--primary)" iconBg="#f3ddd0" label="Чистий прибуток" value={formatMoney(s.net_profit)} />
@@ -222,7 +229,14 @@ export default function PL() {
             <StatCard icon={<IconGift size={18} />} iconColor="var(--error)" iconBg="#f5dcdc" label="Витрачено" value={formatMoney(at.expenses)} />
             <StatCard icon={<IconTrend size={18} />} iconColor="var(--primary)" iconBg="#f3ddd0" label="Прибуток" value={formatMoney(at.net_profit)} />
             <StatCard icon={<IconCoins size={18} />} iconColor="var(--muted)" iconBg="#efe9de" label="Власних коштів внесено" value={formatMoney(at.capital_contributed)} />
-            <StatCard icon={<IconLayers size={18} />} iconColor="var(--body)" iconBg="#e8e0d2" label="Поточний баланс" value={formatMoney(at.balance)} />
+            <StatCard
+              icon={<IconLayers size={18} />}
+              iconColor="var(--body)"
+              iconBg="#e8e0d2"
+              label="Поточний баланс"
+              value={formatMoney(at.balance)}
+              sub={`Картка — ${formatMoney(at.balance_card)} · Готівка — ${formatMoney(at.balance_cash)}`}
+            />
           </div>
           <div className="totals-box" style={{ background: "transparent", border: `1px solid ${breakevenColor}`, padding: "16px 20px" }}>
             <div>

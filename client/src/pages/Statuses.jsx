@@ -3,7 +3,8 @@ import { Link } from "react-router-dom";
 import { api } from "../api";
 import { useLiveData } from "../useLiveData";
 import { Loading, ErrorBanner } from "../components/LoadError.jsx";
-import { STATUS_PIPELINE, formatDate, formatMoney } from "../statuses";
+import PaymentModal from "../components/PaymentModal.jsx";
+import { STATUS_PIPELINE, PAYMENT_STATUSES, formatDate, formatMoney } from "../statuses";
 
 const BOARD_STATUSES = STATUS_PIPELINE.filter((s) => s.value !== "cancelled");
 
@@ -11,12 +12,18 @@ export default function Statuses() {
   const orders = useLiveData(api.getOrders);
   const [draggedId, setDraggedId] = useState(null);
   const [overColumn, setOverColumn] = useState(null);
+  const [paymentRequest, setPaymentRequest] = useState(null);
 
   if (orders.loading) return <Loading />;
   if (orders.error) return <ErrorBanner message={orders.error} />;
 
   async function changeStatus(order, newStatus) {
     if (order.status === newStatus) return;
+    const paymentKind = PAYMENT_STATUSES[newStatus];
+    if (paymentKind) {
+      setPaymentRequest({ order, kind: paymentKind });
+      return;
+    }
     await api.updateOrder(order.id, { status: newStatus });
     orders.reload();
   }
@@ -89,6 +96,15 @@ export default function Statuses() {
           );
         })}
       </div>
+
+      {paymentRequest && (
+        <PaymentModal
+          order={paymentRequest.order}
+          kind={paymentRequest.kind}
+          onClose={() => setPaymentRequest(null)}
+          onSaved={() => orders.reload()}
+        />
+      )}
     </div>
   );
 }
