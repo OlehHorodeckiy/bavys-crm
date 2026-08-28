@@ -2,5 +2,6 @@ node_modules/
 dist/
 server/bavys.db
 server/bavys.db-*
+server/backups/
 .env
 .DS_Store

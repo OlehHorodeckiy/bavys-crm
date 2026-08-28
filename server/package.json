@@ -7,7 +7,9 @@
   "scripts": {
     "dev": "node --env-file=.env index.js",
     "start": "node index.js",
-    "seed": "node --env-file=.env seed.js"
+    "seed": "node --env-file=.env seed.js",
+    "backup": "node --env-file=.env scripts/backup.js",
+    "restore": "node --env-file=.env scripts/restore.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

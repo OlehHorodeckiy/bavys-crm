@@ -198,5 +198,9 @@ async function init() {
 
 module.exports = {
   query: (text, params) => pool.query(text, params),
+  // A dedicated connection for real multi-statement transactions (BEGIN/
+  // COMMIT) — pool.query() alone can hand each call a different connection
+  // from the pool, which silently breaks transactional guarantees.
+  getClient: () => pool.connect(),
   init,
 };
