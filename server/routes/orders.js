@@ -1,7 +1,13 @@
 const express = require("express");
 const db = require("../db");
 const { withOrderTotals, STATUS_PIPELINE, PAYMENT_METHODS } = require("../helpers");
+const { ORDER_GAMES } = require("../pricing");
 const { loadCalculation, getLineItems, replaceLineItems } = require("./calculations");
+
+function sanitizeGames(input) {
+  if (!Array.isArray(input)) return [];
+  return [...new Set(input)].filter((g) => typeof g === "string" && ORDER_GAMES.includes(g));
+}
 
 const ORDER_FIELDS = [
   "client_id",
@@ -76,6 +82,24 @@ module.exports = function ordersRouter(emitChange) {
   router.get("/statuses", (req, res) => res.json(STATUS_PIPELINE));
   router.get("/payment-methods", (req, res) => res.json(PAYMENT_METHODS));
 
+  // Per-game popularity — how many orders included each game, including
+  // games that have never been ordered (zero-filled), most popular first.
+  router.get("/games/stats", async (req, res, next) => {
+    try {
+      const { rows } = await db.query(
+        `SELECT game_name, COUNT(DISTINCT owner_id)::int AS orders_count
+         FROM line_items WHERE owner_type = 'order' GROUP BY game_name`
+      );
+      const counts = Object.fromEntries(rows.map((r) => [r.game_name, r.orders_count]));
+      const stats = ORDER_GAMES.map((game_name) => ({ game_name, orders_count: counts[game_name] || 0 })).sort(
+        (a, b) => b.orders_count - a.orders_count || a.game_name.localeCompare(b.game_name, "uk")
+      );
+      res.json(stats);
+    } catch (err) {
+      next(err);
+    }
+  });
+
   router.get("/:id", async (req, res, next) => {
     try {
       const { rows } = await db.query(
@@ -97,6 +121,30 @@ module.exports = function ordersRouter(emitChange) {
     try {
       const items = await getLineItems("order", req.params.id);
       res.json(items);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Replaces the order's game composition wholesale — analytics-only,
+  // never touches money (same emitChange convention as payments: no
+  // `orders` column changes, but it's still an order-level update).
+  router.put("/:id/games", async (req, res, next) => {
+    try {
+      const { rows: existingRows } = await db.query("SELECT * FROM orders WHERE id = $1", [req.params.id]);
+      const existing = existingRows[0];
+      if (!existing) return res.status(404).json({ error: "Замовлення не знайдено" });
+
+      const items = sanitizeGames(req.body.games).map((name) => ({ game_name: name, is_package: false, price: 0 }));
+      await replaceLineItems("order", existing.id, items);
+
+      const { rows: collectedRows } = await db.query(
+        "SELECT COALESCE(SUM(amount),0)::int AS collected_amount FROM payments WHERE order_id = $1",
+        [existing.id]
+      );
+      const full = withOrderTotals({ ...existing, collected_amount: collectedRows[0].collected_amount });
+      emitChange("order:updated", full);
+      res.json({ ...full, items });
     } catch (err) {
       next(err);
     }
@@ -162,6 +210,11 @@ module.exports = function ordersRouter(emitChange) {
         const calcItems = await getLineItems("calculation", calc.id);
         await replaceLineItems("order", order.id, calcItems);
         await db.query("UPDATE calculations SET status = 'converted', converted_order_id = $1 WHERE id = $2", [order.id, calc.id]);
+      } else if (Array.isArray(body.games) && body.games.length > 0) {
+        // No calculation — games chosen manually, recorded unpriced (this
+        // block is analytics-only and never affects the order's finances).
+        const items = sanitizeGames(body.games).map((name) => ({ game_name: name, is_package: false, price: 0 }));
+        await replaceLineItems("order", order.id, items);
       }
 
       await logInteraction(body.client_id, order.id, "status_change", "Замовлення створено");

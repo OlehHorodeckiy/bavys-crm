@@ -61,6 +61,8 @@ export const api = {
   updateCalculation: (id, data) => request(`/calculations/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   deleteCalculation: (id) => request(`/calculations/${id}`, { method: "DELETE" }),
   getOrderItems: (id) => request(`/orders/${id}/items`),
+  updateOrderGames: (id, games) => request(`/orders/${id}/games`, { method: "PUT", body: JSON.stringify({ games }) }),
+  getGamesStats: () => request("/orders/games/stats"),
 };
 
 function qs(params) {

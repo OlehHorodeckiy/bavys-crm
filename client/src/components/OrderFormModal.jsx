@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import { STATUS_PIPELINE, PAYMENT_METHODS, EVENT_TYPES, formatDate, formatMoney } from "../statuses";
+import { ORDER_GAMES } from "../pricing";
 import { useBodyScrollLock } from "../useBodyScrollLock";
 import PaymentModal from "./PaymentModal.jsx";
 
@@ -33,7 +34,7 @@ function emptyForm(order) {
   };
 }
 
-function applyCalcToForm(calc, setForm, setSelectedClient) {
+function applyCalcToForm(calc, setForm, setSelectedClient, setSelectedGames) {
   setForm((f) => ({
     ...f,
     games_cost: calc.games_total,
@@ -44,6 +45,7 @@ function applyCalcToForm(calc, setForm, setSelectedClient) {
   if (calc.client_id) {
     setSelectedClient({ id: calc.client_id, name: calc.client_name, phone: calc.client_phone });
   }
+  setSelectedGames(calc.items.map((i) => i.game_name));
 }
 
 export default function OrderFormModal({ clients, order, initialCalculation, onClose, onSaved, onDeleted }) {
@@ -63,6 +65,7 @@ export default function OrderFormModal({ clients, order, initialCalculation, onC
   const [activeCalcs, setActiveCalcs] = useState([]);
   const [liveOrder, setLiveOrder] = useState(order);
   const [payments, setPayments] = useState([]);
+  const [selectedGames, setSelectedGames] = useState(initialCalculation ? initialCalculation.items.map((i) => i.game_name) : []);
   const [paymentModal, setPaymentModal] = useState(null); // null=closed, {}=add, {payment}=edit
   useBodyScrollLock();
 
@@ -72,7 +75,7 @@ export default function OrderFormModal({ clients, order, initialCalculation, onC
   }, [isEdit]);
 
   useEffect(() => {
-    if (initialCalculation) applyCalcToForm(initialCalculation, setForm, setSelectedClient);
+    if (initialCalculation) applyCalcToForm(initialCalculation, setForm, setSelectedClient, setSelectedGames);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -87,7 +90,9 @@ export default function OrderFormModal({ clients, order, initialCalculation, onC
 
   // Called after a payment is added/edited/deleted from within this modal —
   // refreshes both the local view and the parent list (socket updates alone
-  // don't reach a modal holding a stale order snapshot).
+  // don't reach a modal holding a stale order snapshot). Deliberately does
+  // NOT re-fetch games — the games picker only saves on the main form
+  // submit, so refetching here would silently discard any unsaved toggles.
   function refreshOrder() {
     fetchLive();
     onSaved?.();
@@ -95,6 +100,7 @@ export default function OrderFormModal({ clients, order, initialCalculation, onC
 
   useEffect(() => {
     fetchLive();
+    if (isEdit) api.getOrderItems(order.id).then((items) => setSelectedGames(items.map((i) => i.game_name)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -102,7 +108,7 @@ export default function OrderFormModal({ clients, order, initialCalculation, onC
     const calc = activeCalcs.find((c) => String(c.id) === String(id));
     setCalculationId(calc ? calc.id : null);
     setAppliedCalc(calc || null);
-    if (calc) applyCalcToForm(calc, setForm, setSelectedClient);
+    if (calc) applyCalcToForm(calc, setForm, setSelectedClient, setSelectedGames);
   }
 
   const matches = useMemo(() => {
@@ -115,6 +121,16 @@ export default function OrderFormModal({ clients, order, initialCalculation, onC
 
   function update(field, value) {
     setForm((f) => ({ ...f, [field]: value }));
+  }
+
+  // Read-only when creating from a calculation — the backend ignores a
+  // manual games list in that case (the calc's own priced items already won),
+  // so an editable-but-discarded toggle would be worse than no toggle at all.
+  const gamesEditable = isEdit || !calculationId;
+
+  function toggleGame(name) {
+    if (!gamesEditable) return;
+    setSelectedGames((prev) => (prev.includes(name) ? prev.filter((g) => g !== name) : [...prev, name]));
   }
 
   const num = (v) => Number(v) || 0;
@@ -151,9 +167,13 @@ export default function OrderFormModal({ clients, order, initialCalculation, onC
 
       if (isEdit) {
         await api.updateOrder(order.id, payload);
+        await api.updateOrderGames(order.id, selectedGames);
       } else {
         payload.advance_amount = num(form.advance_amount);
         payload.payment_method = form.payment_method;
+        // Omitted when creating from a calc — the backend ignores it there
+        // anyway (the calc's own priced games already got copied over).
+        payload.games = calculationId ? undefined : selectedGames;
         await api.createOrder(payload);
       }
       onSaved?.();
@@ -328,6 +348,28 @@ export default function OrderFormModal({ clients, order, initialCalculation, onC
             <div className="field">
               <label>Логістика, грн</label>
               <input type="number" min="0" className="input" value={form.logistics_cost} onChange={(e) => update("logistics_cost", e.target.value)} />
+            </div>
+          </div>
+
+          <div className="field">
+            <label>Ігри</label>
+            {!gamesEditable && (
+              <div style={{ fontSize: "0.78rem", color: "var(--muted)", marginBottom: 6 }}>
+                Перенесено з підрахунку №{appliedCalc?.id} — редагувати можна після створення замовлення.
+              </div>
+            )}
+            <div className="pill-row">
+              {ORDER_GAMES.map((name) => (
+                <button
+                  type="button"
+                  key={name}
+                  className={`pill${selectedGames.includes(name) ? " active" : ""}`}
+                  disabled={!gamesEditable}
+                  onClick={() => toggleGame(name)}
+                >
+                  {name}
+                </button>
+              ))}
             </div>
           </div>
 

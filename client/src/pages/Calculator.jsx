@@ -9,6 +9,7 @@ import { formatMoney, formatDate } from "../statuses";
 export default function Calculator() {
   const clients = useLiveData(api.getClients);
   const calculations = useLiveData(() => api.getCalculations({ status: "active" }), []);
+  const gamesStats = useLiveData(api.getGamesStats);
 
   const [selectedGames, setSelectedGames] = useState([]);
   const [tablesCount, setTablesCount] = useState(0);
@@ -295,6 +296,27 @@ export default function Calculator() {
                     </button>
                     <button className="row-delete-btn" title="Видалити" onClick={() => handleDeleteCalc(c)}>✕</button>
                   </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      <div className="card" style={{ marginTop: 18, overflowX: "auto" }}>
+        <h3 className="section-title">Аналітика ігор</h3>
+        {gamesStats.loading ? (
+          <Loading />
+        ) : (
+          <table>
+            <thead>
+              <tr><th>Гра</th><th>Кількість замовлень</th></tr>
+            </thead>
+            <tbody>
+              {(gamesStats.data || []).map((g) => (
+                <tr key={g.game_name}>
+                  <td>{g.game_name}</td>
+                  <td style={{ fontWeight: 600 }}>{g.orders_count}</td>
                 </tr>
               ))}
             </tbody>

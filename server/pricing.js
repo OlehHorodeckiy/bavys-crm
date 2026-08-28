@@ -23,6 +23,11 @@ const PACKAGE_GAMES = [
 
 const ALL_GAMES = [...PACKAGE_GAMES, ...Object.keys(FIXED_PRICE_GAMES)];
 
+// The catalog for the order-level "Ігри" composition block — same as
+// ALL_GAMES minus "Реквізити для бір понгу", which is equipment rental,
+// not a game, so it doesn't belong in per-game popularity analytics.
+const ORDER_GAMES = [...PACKAGE_GAMES, ...Object.keys(FIXED_PRICE_GAMES).filter((g) => g !== "Реквізити для бір понгу")];
+
 const TABLE_PRICE = 120;
 const ESCORT_HOURLY_RATE = 300;
 
@@ -73,6 +78,7 @@ module.exports = {
   FIXED_PRICE_GAMES,
   PACKAGE_GAMES,
   ALL_GAMES,
+  ORDER_GAMES,
   TABLE_PRICE,
   ESCORT_HOURLY_RATE,
   packagePrice,

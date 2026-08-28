@@ -22,6 +22,10 @@ export const PACKAGE_GAMES = [
 
 export const ALL_GAMES = [...PACKAGE_GAMES, ...Object.keys(FIXED_PRICE_GAMES)];
 
+// Order-level "Ігри" composition block catalog — ALL_GAMES minus
+// "Реквізити для бір понгу" (equipment rental, not a game).
+export const ORDER_GAMES = [...PACKAGE_GAMES, ...Object.keys(FIXED_PRICE_GAMES).filter((g) => g !== "Реквізити для бір понгу")];
+
 export const TABLE_PRICE = 120;
 export const ESCORT_HOURLY_RATE = 300;
 
