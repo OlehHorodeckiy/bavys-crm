@@ -5,7 +5,8 @@ const http = require("http");
 const { Server } = require("socket.io");
 
 const db = require("./db");
-const { expressBasicAuth, socketAuth, isConfigured } = require("./auth");
+const { sessionAuth, socketAuth, isConfigured } = require("./auth");
+const authRouter = require("./routes/auth");
 const clientsRouter = require("./routes/clients");
 const ordersRouter = require("./routes/orders");
 const staffRouter = require("./routes/staff");
@@ -19,24 +20,32 @@ const financeRouter = require("./routes/finance");
 const PORT = process.env.PORT || 4000;
 const CLIENT_DIST = path.join(__dirname, "../client/dist");
 
+// Cookies require an explicit origin allowlist — browsers reject a wildcard
+// "*" combined with credentialed (cookie-carrying) requests.
+const DEV_ORIGINS = ["http://localhost:5173", "http://localhost:5174"];
+const CORS_ORIGINS = [...DEV_ORIGINS, process.env.RENDER_EXTERNAL_URL].filter(Boolean);
+
 const app = express();
-app.use(cors());
+app.use(cors({ origin: CORS_ORIGINS, credentials: true }));
 app.use(express.json());
 
-if (isConfigured) {
-  app.use(expressBasicAuth);
-} else {
-  console.warn("APP_USER / APP_PASSWORD не задані — CRM доступна без входу (годиться лише для локальної розробки).");
+if (!isConfigured) {
+  console.warn("GOOGLE_CLIENT_ID / SESSION_SECRET / ALLOWED_EMAILS не задані — CRM доступна без входу (годиться лише для локальної розробки).");
 }
 
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: "*" } });
+const io = new Server(server, { cors: { origin: CORS_ORIGINS, credentials: true } });
 io.use(socketAuth);
 
 function emitChange(event, payload) {
   io.emit(event, payload);
   io.emit("data:changed", { event });
 }
+
+app.use("/api/auth", authRouter());
+app.get("/api/health", (req, res) => res.json({ ok: true }));
+
+app.use("/api", sessionAuth);
 
 app.use("/api/clients", clientsRouter(emitChange));
 app.use("/api/orders", ordersRouter(emitChange));
@@ -47,8 +56,6 @@ app.use("/api/transactions", transactionsRouter(emitChange));
 app.use("/api/pl", plRouter());
 app.use("/api/calculations", calculationsRouter(emitChange));
 app.use("/api/finance", financeRouter());
-
-app.get("/api/health", (req, res) => res.json({ ok: true }));
 
 app.use(express.static(CLIENT_DIST));
 app.get("*", (req, res, next) => {

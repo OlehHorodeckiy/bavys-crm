@@ -7,4 +7,4 @@ const SOCKET_URL = import.meta.env.DEV
   ? `${window.location.protocol}//${window.location.hostname}:4000`
   : undefined;
 
-export const socket = io(SOCKET_URL, { transports: ["websocket", "polling"] });
+export const socket = io(SOCKET_URL, { transports: ["websocket", "polling"], withCredentials: true });

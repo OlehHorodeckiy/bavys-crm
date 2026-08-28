@@ -1,33 +1,88 @@
-// Single shared login for the whole team — HTTP Basic Auth. The browser
-// caches the credentials after the first prompt and resends them on every
-// request to this origin, including the Socket.IO handshake, so both the
-// REST API and the realtime channel are protected the same way.
-const USER = process.env.APP_USER || "";
-const PASSWORD = process.env.APP_PASSWORD || "";
+const jwt = require("jsonwebtoken");
+const { parseCookie } = require("cookie");
 
-function parseBasicAuth(header) {
-  if (!header || !header.startsWith("Basic ")) return null;
-  const decoded = Buffer.from(header.slice(6), "base64").toString("utf8");
-  const separatorIndex = decoded.indexOf(":");
-  if (separatorIndex === -1) return null;
-  return { user: decoded.slice(0, separatorIndex), pass: decoded.slice(separatorIndex + 1) };
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
+const SESSION_SECRET = process.env.SESSION_SECRET || "";
+const ALLOWED_EMAILS_RAW = process.env.ALLOWED_EMAILS || "";
+
+const SESSION_COOKIE = "bavys_session";
+const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 60; // 60 days — convenience over hygiene, low-stakes 2-person tool
+
+const configuredCount = [GOOGLE_CLIENT_ID, SESSION_SECRET, ALLOWED_EMAILS_RAW].filter(Boolean).length;
+const isConfigured = configuredCount === 3;
+if (configuredCount > 0 && !isConfigured) {
+  console.error(
+    "Вхід через Google налаштовано частково — GOOGLE_CLIENT_ID/SESSION_SECRET/ALLOWED_EMAILS мають бути задані всі разом. " +
+      "Зараз або вхід повністю вимкнений, або можуть заблокувати всіх — перевірте змінні середовища."
+  );
 }
 
-function isValid(header) {
-  if (!USER || !PASSWORD) return true; // auth disabled if not configured (local dev)
-  const creds = parseBasicAuth(header);
-  return !!creds && creds.user === USER && creds.pass === PASSWORD;
+function allowedEmails() {
+  return ALLOWED_EMAILS_RAW.split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
 }
 
-function expressBasicAuth(req, res, next) {
-  if (isValid(req.headers.authorization)) return next();
-  res.set("WWW-Authenticate", 'Basic realm="Bavys CRM"');
-  res.status(401).send("Потрібен вхід.");
+function cookieOptions() {
+  return {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: SESSION_MAX_AGE_SECONDS,
+  };
+}
+
+function issueSessionCookie(res, email) {
+  const token = jwt.sign({ email }, SESSION_SECRET, { expiresIn: SESSION_MAX_AGE_SECONDS });
+  res.cookie(SESSION_COOKIE, token, cookieOptions());
+}
+
+function clearSessionCookie(res) {
+  const { maxAge, ...rest } = cookieOptions();
+  res.clearCookie(SESSION_COOKIE, rest);
+}
+
+// Verifies the raw `Cookie` header (works both for Express's `req.headers.cookie`
+// and Socket.IO's `socket.handshake.headers.cookie` — neither has gone through
+// Express's own cookie-parsing middleware at the point this is called for
+// sockets). Re-checks the allowlist on every call, not just at sign-in, so
+// revoking access is just editing ALLOWED_EMAILS — no waiting for the cookie
+// to expire.
+function verifySessionCookie(rawCookieHeader) {
+  if (!isConfigured) return { email: "local-dev" };
+  const parsed = parseCookie(rawCookieHeader || "");
+  const token = parsed[SESSION_COOKIE];
+  if (!token) return null;
+  try {
+    const payload = jwt.verify(token, SESSION_SECRET);
+    if (!allowedEmails().includes(String(payload.email).toLowerCase())) return null;
+    return { email: payload.email };
+  } catch {
+    return null;
+  }
+}
+
+function sessionAuth(req, res, next) {
+  const session = verifySessionCookie(req.headers.cookie);
+  if (!session) return res.status(401).json({ error: "Потрібен вхід." });
+  req.user = session;
+  next();
 }
 
 function socketAuth(socket, next) {
-  if (isValid(socket.handshake.headers.authorization)) return next();
-  next(new Error("unauthorized"));
+  const session = verifySessionCookie(socket.handshake.headers.cookie);
+  if (!session) return next(new Error("unauthorized"));
+  next();
 }
 
-module.exports = { expressBasicAuth, socketAuth, isConfigured: !!(USER && PASSWORD) };
+module.exports = {
+  isConfigured,
+  GOOGLE_CLIENT_ID,
+  allowedEmails,
+  issueSessionCookie,
+  clearSessionCookie,
+  verifySessionCookie,
+  sessionAuth,
+  socketAuth,
+};
