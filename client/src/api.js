@@ -51,6 +51,8 @@ export const api = {
   getPlExpenseBreakdown: (params = {}) => request(`/pl/expense-breakdown${qs(params)}`),
   getPlMonthly: (params = {}) => request(`/pl/monthly${qs(params)}`),
 
+  getFinancePayments: () => request("/finance/payments"),
+
   getGamesMeta: () => request("/calculations/games"),
   getCalculations: (params = {}) => request(`/calculations${qs(params)}`),
   getCalculation: (id) => request(`/calculations/${id}`),

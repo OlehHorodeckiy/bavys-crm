@@ -14,6 +14,7 @@ const dashboardRouter = require("./routes/dashboard");
 const transactionsRouter = require("./routes/transactions");
 const plRouter = require("./routes/pl");
 const calculationsRouter = require("./routes/calculations");
+const financeRouter = require("./routes/finance");
 
 const PORT = process.env.PORT || 4000;
 const CLIENT_DIST = path.join(__dirname, "../client/dist");
@@ -45,6 +46,7 @@ app.use("/api/dashboard", dashboardRouter());
 app.use("/api/transactions", transactionsRouter(emitChange));
 app.use("/api/pl", plRouter());
 app.use("/api/calculations", calculationsRouter(emitChange));
+app.use("/api/finance", financeRouter());
 
 app.get("/api/health", (req, res) => res.json({ ok: true }));
 
