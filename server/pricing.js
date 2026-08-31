@@ -31,12 +31,11 @@ const ORDER_GAMES = [...PACKAGE_GAMES, ...Object.keys(FIXED_PRICE_GAMES).filter(
 const TABLE_PRICE = 120;
 const ESCORT_HOURLY_RATE = 300;
 
-// 1→800, 2→1550, 3→2300, 4→3000, each one after that +750.
+const PACKAGE_GAME_PRICE = 850;
+
+// Flat per-game price — no volume discount.
 function packagePrice(count) {
-  if (count <= 0) return 0;
-  const steps = [800, 1550, 2300, 3000];
-  if (count <= 4) return steps[count - 1];
-  return 3000 + (count - 4) * 750;
+  return Math.max(count, 0) * PACKAGE_GAME_PRICE;
 }
 
 // Splits a package's total evenly across the games in it, for per-game
@@ -79,6 +78,7 @@ module.exports = {
   PACKAGE_GAMES,
   ALL_GAMES,
   ORDER_GAMES,
+  PACKAGE_GAME_PRICE,
   TABLE_PRICE,
   ESCORT_HOURLY_RATE,
   packagePrice,

@@ -28,12 +28,11 @@ export const ORDER_GAMES = [...PACKAGE_GAMES, ...Object.keys(FIXED_PRICE_GAMES).
 
 export const TABLE_PRICE = 120;
 export const ESCORT_HOURLY_RATE = 300;
+export const PACKAGE_GAME_PRICE = 850;
 
+// Flat per-game price — no volume discount.
 export function packagePrice(count) {
-  if (count <= 0) return 0;
-  const steps = [800, 1550, 2300, 3000];
-  if (count <= 4) return steps[count - 1];
-  return 3000 + (count - 4) * 750;
+  return Math.max(count, 0) * PACKAGE_GAME_PRICE;
 }
 
 export function tablesTotal(count) {
