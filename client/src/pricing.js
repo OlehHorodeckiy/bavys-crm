@@ -27,7 +27,7 @@ export const ALL_GAMES = [...PACKAGE_GAMES, ...Object.keys(FIXED_PRICE_GAMES)];
 export const ORDER_GAMES = [...PACKAGE_GAMES, ...Object.keys(FIXED_PRICE_GAMES).filter((g) => g !== "Реквізити для бір понгу")];
 
 export const TABLE_PRICE = 120;
-export const ESCORT_HOURLY_RATE = 300;
+export const ESCORT_HOURLY_RATE = 400;
 export const PACKAGE_GAME_PRICE = 850;
 
 // Flat per-game price — no volume discount.

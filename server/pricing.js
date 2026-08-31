@@ -29,7 +29,7 @@ const ALL_GAMES = [...PACKAGE_GAMES, ...Object.keys(FIXED_PRICE_GAMES)];
 const ORDER_GAMES = [...PACKAGE_GAMES, ...Object.keys(FIXED_PRICE_GAMES).filter((g) => g !== "Реквізити для бір понгу")];
 
 const TABLE_PRICE = 120;
-const ESCORT_HOURLY_RATE = 300;
+const ESCORT_HOURLY_RATE = 400;
 
 const PACKAGE_GAME_PRICE = 850;
 

@@ -3,7 +3,7 @@ import { api } from "../api";
 import { useLiveData } from "../useLiveData";
 import { Loading, ErrorBanner } from "../components/LoadError.jsx";
 import OrderFormModal from "../components/OrderFormModal.jsx";
-import { ALL_GAMES, FIXED_PRICE_GAMES, priceSelection } from "../pricing";
+import { ALL_GAMES, FIXED_PRICE_GAMES, ESCORT_HOURLY_RATE, priceSelection } from "../pricing";
 import { formatMoney, formatDate } from "../statuses";
 
 export default function Calculator() {
@@ -129,7 +129,7 @@ export default function Calculator() {
             <div className="service-row">
               <div>
                 <strong>Супровід</strong>
-                <div style={{ fontSize: "0.8rem", color: "var(--muted)" }}>300 грн / год / людина</div>
+                <div style={{ fontSize: "0.8rem", color: "var(--muted)" }}>{ESCORT_HOURLY_RATE} грн / год / людина</div>
               </div>
               <label className="switch">
                 <input type="checkbox" checked={escortOn} onChange={(e) => setEscortOn(e.target.checked)} />
