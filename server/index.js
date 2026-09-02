@@ -16,6 +16,7 @@ const transactionsRouter = require("./routes/transactions");
 const plRouter = require("./routes/pl");
 const calculationsRouter = require("./routes/calculations");
 const financeRouter = require("./routes/finance");
+const calendarRouter = require("./routes/calendar");
 
 const PORT = process.env.PORT || 4000;
 const CLIENT_DIST = path.join(__dirname, "../client/dist");
@@ -56,6 +57,7 @@ app.use("/api/transactions", transactionsRouter(emitChange));
 app.use("/api/pl", plRouter());
 app.use("/api/calculations", calculationsRouter(emitChange));
 app.use("/api/finance", financeRouter());
+app.use("/api/calendar", calendarRouter());
 
 app.use(express.static(CLIENT_DIST));
 app.get("*", (req, res, next) => {

@@ -57,6 +57,10 @@ async function migrateOrdersTable() {
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS escort_hours INTEGER`);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS escort_people INTEGER`);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS calculation_id INTEGER`);
+
+  // Google Calendar event this order is mirrored to (partner's calendar
+  // only) — null until the first successful sync, see server/googleCalendar.js.
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS calendar_event_id TEXT`);
 }
 
 // One-time backfill: turns the old single advance_amount number into a real
@@ -189,6 +193,23 @@ async function init() {
       is_package BOOLEAN NOT NULL DEFAULT false,
       price INTEGER NOT NULL DEFAULT 0,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    -- One row per person who has authorized calendar sync (in practice just
+    -- the partner) — refresh_token is what's long-lived; access_token is
+    -- cached here purely to avoid a round-trip to Google on every order
+    -- save, refreshed on demand when it's near expiry (see googleCalendar.js).
+    CREATE TABLE IF NOT EXISTS calendar_auth (
+      email TEXT PRIMARY KEY,
+      refresh_token TEXT NOT NULL,
+      access_token TEXT,
+      access_token_expires_at TIMESTAMPTZ,
+      -- Set when a sync call fails for an auth reason (e.g. the Testing-mode
+      -- 7-day refresh token expired) so the frontend can show "reconnect"
+      -- instead of silently failing forever. Cleared on the next success.
+      last_error TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
 

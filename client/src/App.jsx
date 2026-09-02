@@ -2,6 +2,7 @@ import { useState } from "react";
 import { HashRouter, NavLink, Route, Routes } from "react-router-dom";
 import { useAuth } from "./AuthProvider.jsx";
 import Logo from "./components/Logo.jsx";
+import CalendarConnect from "./components/CalendarConnect.jsx";
 import { IconOverview, IconGift, IconLayers, IconUsers, IconCoins, IconClock, IconMenu, IconTrend, IconCalculator } from "./components/icons.jsx";
 import { useBodyScrollLock } from "./useBodyScrollLock.js";
 import Dashboard from "./pages/Dashboard.jsx";
@@ -58,11 +59,14 @@ function Layout({ children }) {
             </NavLink>
           ))}
         </nav>
-        <div style={{ marginTop: "auto", padding: "12px 16px", fontSize: "0.8rem", color: "var(--muted)" }}>
-          <div style={{ marginBottom: 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.email}</div>
-          <button type="button" className="btn-ghost" style={{ height: 28, padding: "0 10px" }} onClick={logout}>
-            Вийти
-          </button>
+        <div style={{ marginTop: "auto" }}>
+          <CalendarConnect />
+          <div style={{ padding: "12px 16px", fontSize: "0.8rem", color: "var(--muted)" }}>
+            <div style={{ marginBottom: 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.email}</div>
+            <button type="button" className="btn-ghost" style={{ height: 28, padding: "0 10px" }} onClick={logout}>
+              Вийти
+            </button>
+          </div>
         </div>
       </aside>
       <main className="main">{children}</main>

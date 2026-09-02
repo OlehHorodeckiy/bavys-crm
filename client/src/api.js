@@ -63,6 +63,10 @@ export const api = {
   getOrderItems: (id) => request(`/orders/${id}/items`),
   updateOrderGames: (id, games) => request(`/orders/${id}/games`, { method: "PUT", body: JSON.stringify({ games }) }),
   getGamesStats: () => request("/orders/games/stats"),
+
+  getCalendarStatus: () => request("/calendar/status"),
+  connectCalendar: (code) => request("/calendar/connect", { method: "POST", body: JSON.stringify({ code }) }),
+  disconnectCalendar: () => request("/calendar/disconnect", { method: "POST" }),
 };
 
 function qs(params) {

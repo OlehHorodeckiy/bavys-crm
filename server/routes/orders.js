@@ -3,6 +3,7 @@ const db = require("../db");
 const { withOrderTotals, STATUS_PIPELINE, PAYMENT_METHODS } = require("../helpers");
 const { ORDER_GAMES } = require("../pricing");
 const { loadCalculation, getLineItems, replaceLineItems } = require("./calculations");
+const { syncCalendarForOrder } = require("../googleCalendar");
 
 function sanitizeGames(input) {
   if (!Array.isArray(input)) return [];
@@ -219,6 +220,14 @@ module.exports = function ordersRouter(emitChange) {
 
       await logInteraction(body.client_id, order.id, "status_change", "Замовлення створено");
 
+      // Best-effort — never blocks the order from saving (see googleCalendar.js).
+      const { rows: clientRows } = await db.query("SELECT name FROM clients WHERE id = $1", [order.client_id]);
+      const newEventId = await syncCalendarForOrder(order, clientRows[0]?.name || "");
+      if (newEventId !== order.calendar_event_id) {
+        await db.query("UPDATE orders SET calendar_event_id = $1 WHERE id = $2", [newEventId, order.id]);
+        order.calendar_event_id = newEventId;
+      }
+
       const full = withOrderTotals({ ...order, collected_amount: advanceAmount });
       emitChange("order:created", full);
       res.status(201).json(full);
@@ -246,6 +255,14 @@ module.exports = function ordersRouter(emitChange) {
       if (body.status && body.status !== existing.status) {
         const label = STATUS_PIPELINE.find((s) => s.value === body.status)?.label || body.status;
         await logInteraction(existing.client_id, existing.id, "status_change", `Статус змінено на «${label}»`);
+      }
+
+      // Best-effort — never blocks the order from saving (see googleCalendar.js).
+      const { rows: clientRows } = await db.query("SELECT name FROM clients WHERE id = $1", [order.client_id]);
+      const newEventId = await syncCalendarForOrder(order, clientRows[0]?.name || "");
+      if (newEventId !== order.calendar_event_id) {
+        await db.query("UPDATE orders SET calendar_event_id = $1 WHERE id = $2", [newEventId, order.id]);
+        order.calendar_event_id = newEventId;
       }
 
       const { rows: collectedRows } = await db.query(
@@ -375,6 +392,13 @@ module.exports = function ordersRouter(emitChange) {
       const { rows: existingRows } = await db.query("SELECT * FROM orders WHERE id = $1", [req.params.id]);
       const existing = existingRows[0];
       if (!existing) return res.status(404).json({ error: "Замовлення не знайдено" });
+
+      // Best-effort — a calendar hiccup must never block deleting the order.
+      // Forcing event_date to null makes syncCalendarForOrder take its
+      // "shouldn't have an event" branch, i.e. delete it, regardless of status.
+      if (existing.calendar_event_id) {
+        await syncCalendarForOrder({ ...existing, event_date: null }, "");
+      }
 
       await db.query("UPDATE interactions SET order_id = NULL WHERE order_id = $1", [req.params.id]);
       await db.query(
